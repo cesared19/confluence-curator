@@ -1,12 +1,15 @@
 """El "asesor" decide dónde va la información nueva y redacta el cambio.
 
-Hay dos implementaciones con la misma interfaz:
+Hay tres implementaciones con la misma interfaz:
 - AnthropicAdvisor: usa Claude (texto e imágenes).
+- OllamaAdvisor: usa un modelo local servido por Ollama; la información no sale de tu red.
 - MockAdvisor: heurística local sin IA, para probar el flujo sin enviar datos a ningún servicio.
 """
 
 import base64
 import html
+
+import httpx
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
@@ -167,6 +170,61 @@ class AnthropicAdvisor:
         if response.parsed_output is None:
             raise RuntimeError("El modelo no devolvió un análisis válido.")
         return response.parsed_output
+
+
+def inline_refs(schema: dict) -> dict:
+    """Expande los $ref de Pydantic: algunos servidores locales no resuelven $defs al restringir la salida."""
+    definitions = schema.get("$defs", {})
+
+    def expand(node):
+        if isinstance(node, dict):
+            if "$ref" in node:
+                return expand(definitions[node["$ref"].rsplit("/", 1)[-1]])
+            return {k: expand(v) for k, v in node.items() if k != "$defs"}
+        if isinstance(node, list):
+            return [expand(v) for v in node]
+        return node
+
+    return expand(schema)
+
+
+class OllamaAdvisor:
+    """Modelo local con Ollama (https://ollama.com). Para analizar imágenes, el modelo debe tener visión."""
+
+    name = "ollama"
+
+    def __init__(self, base_url: str, model: str, context: int, transport: httpx.BaseTransport | None = None):
+        self.model = model
+        self.context = context
+        self.http = httpx.Client(base_url=base_url.rstrip("/"), timeout=900, transport=transport)
+
+    def analyze(self, data: AdvisorInput) -> Analysis:
+        user = {"role": "user", "content": build_prompt(data)}
+        if data.images:
+            user["images"] = [base64.standard_b64encode(raw).decode() for _, raw in data.images]
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "format": inline_refs(Analysis.model_json_schema()),
+            "options": {"temperature": 0, "num_ctx": self.context},
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT + "\nResponde solo con el JSON pedido."},
+                user,
+            ],
+        }
+        try:
+            response = self.http.post("/api/chat", json=payload)
+        except httpx.HTTPError as error:
+            raise RuntimeError(f"No se pudo conectar con Ollama en {self.http.base_url}: {error}") from error
+        if not response.is_success:
+            raise RuntimeError(f"Ollama respondió {response.status_code}: {response.text[:300]}")
+        body = response.json()
+        if body.get("done_reason") == "length":
+            raise RuntimeError("La respuesta se cortó por longitud; aumenta OLLAMA_CONTEXT o divide la nota.")
+        try:
+            return Analysis.model_validate_json(body["message"]["content"])
+        except (KeyError, ValueError) as error:
+            raise RuntimeError(f"El modelo local no devolvió un análisis válido: {error}") from error
 
 
 class MockAdvisor:

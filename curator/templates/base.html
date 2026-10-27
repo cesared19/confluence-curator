@@ -11,7 +11,7 @@
 	<div class="bar">
 		<a class="brand" href="/">Confluence Curator</a>
 		<span class="mode" title="Quién sugiere la ubicación y redacta los cambios">
-			{% if curator.advisor.name == 'anthropic' %}IA: Claude{% else %}Sin IA (modo de prueba){% endif %}
+			{% if curator.advisor.name == 'anthropic' %}IA: Claude{% elif curator.advisor.name == 'ollama' %}IA local: {{ curator.advisor.model }}{% else %}Sin IA (modo de prueba){% endif %}
 			· {% if curator.confluence is none %}Confluence sin configurar{% elif curator.confluence.base_url.startswith('https://demo.') %}Confluence demo{% else %}Espacio {{ curator.space_key }}{% endif %}
 		</span>
 		<nav>

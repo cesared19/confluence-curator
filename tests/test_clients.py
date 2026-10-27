@@ -124,3 +124,49 @@ def test_basic_auth():
     client = TestClient(create_app(curator, Settings(app_user="yo", app_password="secreto")))
     assert client.get("/").status_code == 401
     assert client.get("/", auth=("yo", "secreto")).status_code == 200
+
+
+def test_ollama_advisor_request_and_parsing():
+    from curator.advisor import OllamaAdvisor, inline_refs
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["payload"] = json.loads(request.content)
+        answer = Analysis(note_summary="s", changes=[], alternatives=[], no_change_reason="ya documentado")
+        return httpx.Response(200, json={"message": {"content": answer.model_dump_json()}, "done_reason": "stop"})
+
+    advisor = OllamaAdvisor("http://localhost:11434/", "gemma3:12b", 8192, transport=httpx.MockTransport(handler))
+    result = advisor.analyze(AdvisorInput(note_text="nota", source="Chat", images=[("image/png", b"abc")]))
+    payload = seen["payload"]
+    assert seen["path"] == "/api/chat" and result.no_change_reason == "ya documentado"
+    assert payload["model"] == "gemma3:12b" and payload["stream"] is False
+    assert payload["options"] == {"temperature": 0, "num_ctx": 8192}
+    assert payload["messages"][1]["images"] == ["YWJj"]
+    assert "$ref" not in json.dumps(payload["format"]) and "$defs" not in payload["format"]
+    assert payload["format"] == inline_refs(Analysis.model_json_schema())
+
+
+def test_ollama_advisor_errors():
+    from curator.advisor import OllamaAdvisor
+
+    def bad_json(request):
+        return httpx.Response(200, json={"message": {"content": "no es json"}, "done_reason": "stop"})
+
+    advisor = OllamaAdvisor("http://x", "m", 1024, transport=httpx.MockTransport(bad_json))
+    try:
+        advisor.analyze(AdvisorInput(note_text="n", source=""))
+        raise AssertionError("debía fallar")
+    except RuntimeError as error:
+        assert "no devolvió un análisis válido" in str(error)
+
+    def cut(request):
+        return httpx.Response(200, json={"message": {"content": "{"}, "done_reason": "length"})
+
+    advisor = OllamaAdvisor("http://x", "m", 1024, transport=httpx.MockTransport(cut))
+    try:
+        advisor.analyze(AdvisorInput(note_text="n", source=""))
+        raise AssertionError("debía fallar")
+    except RuntimeError as error:
+        assert "OLLAMA_CONTEXT" in str(error)

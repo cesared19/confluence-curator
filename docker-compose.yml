@@ -6,6 +6,9 @@ services:
       - curator-data:/data
     ports:
       - "127.0.0.1:8000:8000"
+    # Permite usar Ollama instalado en el mismo equipo: OLLAMA_URL=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:

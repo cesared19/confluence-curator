@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import storage
-from .advisor import AnthropicAdvisor, MockAdvisor
+from .advisor import AnthropicAdvisor, MockAdvisor, OllamaAdvisor
 from .config import Settings, load_settings
 from .db import Database, loads
 from .service import Curator, CuratorError
@@ -41,11 +41,12 @@ def build_curator(settings: Settings) -> Curator:
         space_key = settings.confluence_space_key
     else:
         confluence, space_key = None, ""
-    advisor = (
-        AnthropicAdvisor(settings.anthropic_model, settings.anthropic_effort)
-        if settings.advisor == "anthropic"
-        else MockAdvisor()
-    )
+    if settings.advisor == "anthropic":
+        advisor = AnthropicAdvisor(settings.anthropic_model, settings.anthropic_effort)
+    elif settings.advisor == "ollama":
+        advisor = OllamaAdvisor(settings.ollama_url, settings.ollama_model, settings.ollama_context)
+    else:
+        advisor = MockAdvisor()
     return Curator(Database(settings.database_path), advisor, confluence, space_key, settings.candidates)
 
 

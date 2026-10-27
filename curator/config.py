@@ -24,6 +24,9 @@ class Settings:
     advisor: str = "mock"
     anthropic_model: str = "claude-opus-5-5"
     anthropic_effort: str = "high"
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "gemma3:12b"
+    ollama_context: int = 32768
     database_path: str = "data/curator.db"
     candidates: int = 10
     app_user: str = ""
@@ -50,6 +53,9 @@ def load_settings() -> Settings:
         advisor=advisor,
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5"),
         anthropic_effort=os.environ.get("ANTHROPIC_EFFORT", "high"),
+        ollama_url=os.environ.get("OLLAMA_URL", "http://localhost:11434"),
+        ollama_model=os.environ.get("OLLAMA_MODEL", "gemma3:12b"),
+        ollama_context=int(os.environ.get("OLLAMA_CONTEXT", "32768")),
         database_path=os.environ.get("CURATOR_DATABASE", "data/curator.db"),
         candidates=int(os.environ.get("CURATOR_CANDIDATES", "10")),
         app_user=os.environ.get("CURATOR_USER", ""),

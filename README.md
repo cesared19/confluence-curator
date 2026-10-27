@@ -13,10 +13,13 @@ Cada publicación queda en el historial de versiones de Confluence, con el resum
 
 ## Cómo decide dónde va la información
 
-- **Con IA (Claude):** lee la nota, las imágenes, el árbol de páginas del espacio y las secciones más parecidas, y redacta el cambio respetando el estilo de la página. Distingue entre lo que hace el producto real y lo que decide el proyecto para la simulación, y si no queda claro lo indica.
-- **Sin IA (modo de prueba):** agrega la nota tal cual a la sección con más palabras en común. Sirve para probar el flujo sin enviar información a ningún servicio externo.
+Hay tres modos, que se eligen con `CURATOR_ADVISOR`:
 
-Si no hay `ANTHROPIC_API_KEY`, se usa el modo sin IA. **Antes de activar Claude, confirma que la política de tu empresa permite enviar a la API de Anthropic la información del proyecto y el contenido del espacio.** Con la IA activada se envían, en cada análisis, la nota, sus imágenes, los títulos de las páginas y el contenido de las secciones candidatas.
+- **IA local (`ollama`):** un modelo que corre en tu equipo o en un servidor de tu red con [Ollama](https://ollama.com). Hace el mismo trabajo que con Claude (lee la nota, la compara con las secciones de Confluence, señala contradicciones y redacta el cambio), y **la información no sale de tu red**. Ver [IA local con Ollama](#ia-local-con-ollama).
+- **Con IA en la nube (`anthropic`, Claude):** lee la nota, las imágenes, el árbol de páginas del espacio y las secciones más parecidas, y redacta el cambio respetando el estilo de la página. Distingue entre lo que hace el producto real y lo que decide el proyecto para la simulación, y si no queda claro lo indica.
+- **Sin IA (`mock`, modo de prueba):** agrega la nota tal cual a la sección con más palabras en común. Sirve para probar el flujo sin enviar información a ningún servicio externo.
+
+Si `CURATOR_ADVISOR` está vacío, se usa Claude cuando hay `ANTHROPIC_API_KEY` y, si no, el modo sin IA. **Antes de activar Claude, confirma que la política de tu empresa permite enviar a la API de Anthropic la información del proyecto y el contenido del espacio.** Con la IA activada se envían, en cada análisis, la nota, sus imágenes, los títulos de las páginas y el contenido de las secciones candidatas.
 
 ## Puesta en marcha
 
@@ -38,6 +41,19 @@ CURATOR_DEMO=1 python -m curator
 ```
 
 Con Docker: `docker compose up -d --build` (usa `.env` y publica la interfaz solo en `127.0.0.1:8000`).
+
+### IA local con Ollama
+
+1. Instala Ollama (<https://ollama.com/download>) en tu equipo o en un servidor de la red.
+2. Descarga un modelo: `ollama pull gemma3:12b`.
+3. En `.env`: `CURATOR_ADVISOR=ollama` y, si hace falta, `OLLAMA_URL`, `OLLAMA_MODEL` y `OLLAMA_CONTEXT`.
+
+Sobre el modelo:
+
+- Para analizar imágenes necesita visión (`gemma3`, `qwen2.5vl`, `llama3.2-vision`). Si eliges uno sin visión, usa notas solo de texto.
+- La calidad depende del tamaño del modelo. Con modelos de 4 a 8 mil millones de parámetros la ubicación suele ser razonable, pero la redacción y la detección de contradicciones son más flojas. `gemma3:12b` (unos 8 GB, con GPU de 12 GB o una Mac con 16 GB) es un buen punto de partida; `gemma3:27b` o `qwen2.5vl:32b` rinden mejor si el equipo lo permite. Sin GPU funciona, pero cada análisis puede tardar varios minutos.
+- `OLLAMA_CONTEXT` (32768 por defecto) es cuánto texto lee el modelo de una vez: la nota más las secciones candidatas. Si una página es muy larga, súbelo o baja `CURATOR_CANDIDATES` (10 por defecto).
+- Con Docker, si Ollama corre en el mismo equipo, usa `OLLAMA_URL=http://host.docker.internal:11434`.
 
 ### Credenciales de Confluence
 
@@ -69,7 +85,7 @@ Estructura:
 - `curator/confluence.py`: cliente de Confluence Cloud (API v2; v1 para adjuntos).
 - `curator/storage.py`: divide las páginas en secciones por encabezados sobre el texto original, de modo que al reemplazar una sección el resto de la página no cambia. También valida el XHTML.
 - `curator/search.py`: búsqueda BM25 sin acentos (español e inglés).
-- `curator/advisor.py`: asesores (Claude con salida estructurada, y modo sin IA).
+- `curator/advisor.py`: asesores (Claude y Ollama con salida estructurada, y modo sin IA).
 - `curator/service.py`: flujo de notas, propuestas y publicación.
 - `curator/web.py` y `curator/templates/`: interfaz web (FastAPI + Jinja).
 - `curator/demo.py`: Confluence simulado.
