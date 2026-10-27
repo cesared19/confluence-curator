@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{% block title %}Confluence Curator{% endblock %}</title>
+	<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+	<div class="bar">
+		<a class="brand" href="/">Confluence Curator</a>
+		<span class="mode" title="Quién sugiere la ubicación y redacta los cambios">
+			{% if curator.advisor.name == 'anthropic' %}IA: Claude{% else %}Sin IA (modo de prueba){% endif %}
+			· {% if curator.confluence is none %}Confluence sin configurar{% elif curator.confluence.base_url.startswith('https://demo.') %}Confluence demo{% else %}Espacio {{ curator.space_key }}{% endif %}
+		</span>
+		<nav>
+			<a href="/">Bandeja</a>
+			<a href="/search">Buscar</a>
+			<a href="/history">Historial</a>
+			<a href="/index">Índice</a>
+		</nav>
+	</div>
+</header>
+<main>
+	{% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
+	{% if message %}<div class="flash ok" role="status">{{ message }}</div>{% endif %}
+	{% block content %}{% endblock %}
+</main>
+<script>
+	// Evita envíos dobles y avisa que el análisis puede tardar.
+	document.querySelectorAll('form[data-busy]').forEach((form) => {
+		form.addEventListener('submit', (event) => {
+			const button = event.submitter || form.querySelector('button[type=submit]')
+			form.querySelectorAll('button').forEach((b) => (b.disabled = true))
+			if (button) button.textContent = form.dataset.busy
+		})
+	})
+</script>
+</body>
+</html>

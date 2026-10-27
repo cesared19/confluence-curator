@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Índice · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Índice del espacio</h1>
+<div class="card">
+	<p>{{ pages|length }} páginas indexadas{% if last_sync %} · última sincronización {{ last_sync }} (UTC){% endif %}.</p>
+	<p class="muted">La herramienta busca dónde va cada nota en esta copia local. Sincroniza después de editar Confluence por fuera de la herramienta; antes de publicar, siempre se relee la página en vivo.</p>
+	<form method="post" action="/sync" data-busy="Sincronizando…">
+		<button class="primary" type="submit">Sincronizar ahora</button>
+	</form>
+</div>
+{% if tree %}
+<div class="card"><pre class="tree">{{ tree }}</pre></div>
+{% endif %}
+{% endblock %}

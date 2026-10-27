@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Nueva información</h1>
+{% if pages == 0 %}
+<div class="flash error">El índice está vacío. Ve a <a href="/index">Índice</a> y sincroniza el espacio de Confluence para que la herramienta sepa qué hay publicado.</div>
+{% endif %}
+<form class="card" method="post" action="/notes" enctype="multipart/form-data" data-busy="Analizando…">
+	<label for="text">Texto</label>
+	<textarea id="text" name="text" rows="9" placeholder="Pega aquí el mensaje del chat, la descripción o los comentarios del ticket, o el fragmento del manual."></textarea>
+	<div class="row">
+		<div>
+			<label for="source_type">Fuente</label>
+			<select id="source_type" name="source_type">
+				{% for s in sources %}<option>{{ s }}</option>{% endfor %}
+			</select>
+		</div>
+		<div>
+			<label for="source_ref">Referencia (opcional)</label>
+			<input id="source_ref" name="source_ref" type="text" placeholder="Clave de Jira, enlace al mensaje o capítulo del manual">
+		</div>
+	</div>
+	<label for="images">Imágenes (opcional)</label>
+	<input id="images" name="images" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
+	<p class="muted">Capturas, diagramas o fotos del manual. PNG, JPEG, GIF o WebP, hasta 10 MB cada una.</p>
+	<div class="actions"><button class="primary" type="submit">Analizar y sugerir ubicación</button></div>
+</form>
+
+<h2>Notas recientes</h2>
+<div class="card">
+	{% if notes %}
+	<table class="list">
+		<thead><tr><th>#</th><th>Resumen</th><th>Fuente</th><th>Estado</th></tr></thead>
+		<tbody>
+		{% for n in notes %}
+		<tr>
+			<td><a href="/notes/{{ n.id }}">{{ n.id }}</a></td>
+			<td><a href="/notes/{{ n.id }}">{{ (n.summary or n.text)[:110] or '(solo imágenes)' }}</a></td>
+			<td>{{ n.source_type }}{% if n.source_ref %} · {{ n.source_ref }}{% endif %}</td>
+			<td>
+				{% if n.error %}<span class="badge danger">Error</span>
+				{% elif n.pending %}<span class="badge warn">{{ n.pending }} por revisar</span>
+				{% elif n.applied %}<span class="badge ok">Publicada</span>
+				{% else %}<span class="badge">Sin cambios</span>{% endif %}
+			</td>
+		</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	{% else %}
+	<p class="muted">Todavía no hay notas.</p>
+	{% endif %}
+</div>
+{% endblock %}

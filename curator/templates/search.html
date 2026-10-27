@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Buscar · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Buscar en la documentación</h1>
+<form class="card" method="get" action="/search">
+	<label for="q">Palabras clave</label>
+	<input id="q" name="q" type="search" value="{{ q }}" placeholder="Ej.: alarma sobrepresión">
+	<div class="actions"><button class="primary" type="submit">Buscar</button></div>
+</form>
+{% if q %}
+<div class="card">
+	{% if results %}
+	<table class="list">
+		<thead><tr><th>Página</th><th>Sección</th><th>Extracto</th></tr></thead>
+		<tbody>
+		{% for r in results %}
+		<tr>
+			<td>{{ r.page_title }}</td>
+			<td>{{ r.heading }}</td>
+			<td class="muted">{{ r.storage|striptags|truncate(180) }}</td>
+		</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	{% else %}
+	<p class="muted">Sin resultados.</p>
+	{% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Nota {{ note.id }} · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Nota {{ note.id }}{% if note.summary %}: {{ note.summary }}{% endif %}</h1>
+
+<details class="card">
+	<summary>Información recibida · {{ note.source_type }}{% if note.source_ref %} · {{ note.source_ref }}{% endif %}</summary>
+	<div class="note-text">{{ note.text }}</div>
+	{% if images %}
+	<div class="thumbs">
+		{% for img in images %}<a href="/notes/{{ note.id }}/images/{{ img.idx }}" target="_blank"><img src="/notes/{{ note.id }}/images/{{ img.idx }}" alt="Imagen {{ img.idx }}: {{ img.filename }}"></a>{% endfor %}
+	</div>
+	{% endif %}
+</details>
+
+{% if note.error %}<div class="flash error">{{ note.error }}</div>{% endif %}
+{% if note.no_change_reason and not proposals %}
+<div class="card"><h2>No hace falta cambiar nada</h2><p>{{ note.no_change_reason }}</p></div>
+{% endif %}
+
+{% for p in proposals %}
+{% set row = p.row %}
+<section class="card" id="propuesta-{{ row.id }}">
+	<h2>
+		{{ ACTIONS[row.action] }}:
+		{% if row.action == 'create_page' %}«{{ row.new_title }}»{% if p.page %} dentro de «{{ p.page.title }}»{% endif %}
+		{% else %}{{ p.page.title if p.page else row.page_id }}{% if p.heading %} › {{ p.heading }}{% endif %}{% endif %}
+	</h2>
+	<p>
+		{% if row.status == 'applied' %}<span class="badge ok">Publicada</span> <a href="{{ row.result_url }}" target="_blank">Ver en Confluence</a>
+		{% elif row.status == 'rejected' %}<span class="badge">Descartada</span>
+		{% else %}<span class="badge {{ 'ok' if row.confidence >= 0.75 else 'warn' if row.confidence >= 0.45 else 'danger' }}">Confianza {{ (row.confidence * 100)|round|int }}%</span>{% endif %}
+	</p>
+	<p><strong>Cambio:</strong> {{ row.summary }}</p>
+	<p class="muted"><strong>Por qué aquí:</strong> {{ row.rationale }}</p>
+	{% if p.conflicts %}
+	<ul class="conflicts">
+		{% for c in p.conflicts %}<li><strong>Contradice lo publicado:</strong> {{ c }}</li>{% endfor %}
+	</ul>
+	{% endif %}
+	{% if row.error %}<div class="flash error">{{ row.error }}</div>{% endif %}
+
+	<details open>
+		<summary>Diferencias</summary>
+		<div class="diff-wrap">{{ p.diff|safe }}</div>
+	</details>
+	<details>
+		<summary>Vista previa</summary>
+		<iframe class="preview" sandbox srcdoc="{{ p.preview }}" title="Vista previa de la propuesta {{ row.id }}"></iframe>
+	</details>
+
+	{% if row.status == 'pending' %}
+	<form method="post" action="/proposals/{{ row.id }}/apply" data-busy="Publicando…">
+		{% if row.action == 'create_page' %}
+		<label for="title-{{ row.id }}">Título de la página</label>
+		<input id="title-{{ row.id }}" name="new_title" type="text" value="{{ row.new_title }}">
+		{% endif %}
+		<details>
+			<summary>Editar contenido antes de publicar</summary>
+			<label for="content-{{ row.id }}">Storage format de Confluence (XHTML). <span class="muted">[[IMAGEN:n]] inserta la imagen n de la nota.</span></label>
+			<textarea class="code" id="content-{{ row.id }}" name="content" rows="14">{{ row.new_storage }}</textarea>
+		</details>
+		<div class="actions">
+			<button class="primary" type="submit">Aprobar y publicar</button>
+			<button type="submit" formaction="/proposals/{{ row.id }}/reject">Descartar</button>
+		</div>
+	</form>
+	{% endif %}
+</section>
+{% endfor %}
+
+<section class="card">
+	<h2>¿No es el lugar correcto?</h2>
+	{% if alternatives %}
+	<p class="muted">Otras ubicaciones posibles:</p>
+	<ul>
+		{% for a in alternatives %}
+		<li>
+			<form method="post" action="/notes/{{ note.id }}/reanalyze" data-busy="Analizando…" style="display:inline">
+				<input type="hidden" name="target" value="{{ a.page_id }}{% if a.section_index >= 0 %}#{{ a.section_index }}{% endif %}">
+				<button type="submit">Usar «{{ a.page_title }}{% if a.heading %} › {{ a.heading }}{% endif %}»</button>
+			</form>
+			<span class="muted">{{ a.reason }}</span>
+		</li>
+		{% endfor %}
+	</ul>
+	{% endif %}
+	<form method="post" action="/notes/{{ note.id }}/reanalyze" data-busy="Analizando…">
+		<label for="target">Página destino (opcional)</label>
+		<select id="target" name="target">
+			<option value="">Que la herramienta decida</option>
+			{% for pg in pages %}<option value="{{ pg.id }}">{{ pg.title }}</option>{% endfor %}
+		</select>
+		<label for="hint">Indicaciones (opcional)</label>
+		<input id="hint" name="hint" type="text" placeholder="Ej.: es una decisión del proyecto, no del producto real; va en una página nueva bajo Criterios de QA">
+		<div class="actions"><button type="submit">Analizar de nuevo</button></div>
+	</form>
+</section>
+{% endblock %}
