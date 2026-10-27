@@ -14,7 +14,7 @@ import uvicorn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from curator.advisor import Alternative, Analysis, Change, MockAdvisor  # noqa: E402
+from curator.advisor import Alternative, Analysis, Change, ContradictionCheck, MockAdvisor  # noqa: E402
 from curator.config import Settings  # noqa: E402
 from curator.db import Database  # noqa: E402
 from curator.demo import FakeConfluence, FakeJira  # noqa: E402
@@ -71,6 +71,22 @@ class ExampleAdvisor:
     """Propuestas de ejemplo para la demostración; cualquier otra nota usa el modo sin IA."""
 
     name = "example"
+    can_compare = True
+
+    def compare(self, a, b):
+        texts = {ref.heading: ref.storage for ref in (a, b)}
+        manual, simulation = texts.get("Alarmas", ""), texts.get("Alarmas en la simulación", "")
+        if "8 bar" in manual and "7 bar" in simulation:
+            return ContradictionCheck(
+                contradicts=True,
+                explanation="El manual de referencia dice que la alarma de sobrepresión suena a partir de 8 bar; la página "
+                "de la simulación dice que se activa a los 7 bar, sin indicar que la diferencia sea intencional.",
+                outdated="b" if b.heading == "Alarmas en la simulación" else "a",
+                confidence=0.87,
+                suggestion="Alinear la simulación con el umbral vigente del producto, o aclarar que la diferencia es una "
+                "decisión del proyecto.",
+            )
+        return ContradictionCheck(contradicts=False, explanation="", outdated="unknown", confidence=0.05, suggestion="")
 
     def analyze(self, data):
         for marker, example in EXAMPLES.items():

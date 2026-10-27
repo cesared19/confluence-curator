@@ -45,6 +45,19 @@ await page.click('text=Analizar y sugerir ubicación')
 await page.waitForURL(/\/notes\/\d+/)
 await waitAnalyzed()
 
+// Revisión de la documentación (antes de publicar, para que aparezcan sus hallazgos).
+await page.goto(`${base}/audit`)
+await page.fill('#audit-stale', '0')
+await page.click('form[action="/audit/settings"] button:has-text("Guardar")')
+await page.waitForSelector('.flash.ok')
+await page.click('text=Revisar ahora')
+for (let i = 0; i < 40 && (await page.locator('text=Revisión en curso…').count()); i++) {
+	await page.waitForTimeout(500)
+	await page.reload()
+}
+await page.goto(`${base}/audit`)
+await shot('revision.png', { fullPage: true })
+
 // Publicar dos propuestas para que haya historial.
 for (const id of [3, 4]) {
 	await page.goto(`${base}/notes/${id}`)

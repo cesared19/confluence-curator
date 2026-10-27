@@ -29,6 +29,10 @@ Tomadas en el modo demo, con Confluence y Jira simulados y propuestas de ejemplo
 
 ![Importación desde Jira y revisión automática](docs/screenshots/jira.png)
 
+**Revisión:** una contradicción entre dos páginas y una página que menciona un ticket que cambió después.
+
+![Revisión de la documentación con hallazgos](docs/screenshots/revision.png)
+
 **PDF:** un manual dividido por capítulos, con la página escaneada detectada.
 
 ![Manual en PDF dividido en partes](docs/screenshots/pdf.png)
@@ -108,6 +112,12 @@ La herramienta solo lee Jira: no cambia tickets ni agrega comentarios.
 - **Jira:** busca con JQL (por ejemplo `project = SIM AND updated >= -14d ORDER BY updated DESC`) o escribiendo claves (`SIM-101, SIM-102`). Elige los tickets y cada uno se convierte en una nota con sus datos (tipo, estado, etiquetas, versiones, responsables), la descripción, todos los comentarios, el enlace y las imágenes adjuntas (hasta 10 MB cada una). Las notas se analizan en segundo plano, de a una; la bandeja muestra *Analizando…* y se actualiza sola. La lista indica qué tickets ya se importaron y cuáles cambiaron desde entonces, que quedan marcados para volver a importarlos.
 - **Revisión automática de Jira:** en la página Jira guarda una consulta JQL y cada cuántos minutos revisarla (mínimo 5). La herramienta importa sola los tickets nuevos o que cambiaron, hasta 20 por revisión; los demás quedan para la siguiente. Al activarla solo trae lo que cambie de ahí en adelante, para no llenar la bandeja con tickets viejos; esos se importan a mano. *Revisar ahora* la ejecuta en el momento. La bandeja muestra cuándo fue la última revisión y si falló. La revisión corre mientras la aplicación esté encendida.
 - **PDF:** sube un manual, una especificación o un documento de diseño (hasta 50 MB). La herramienta lo divide por capítulos usando los marcadores del PDF o, si no tiene, en bloques de páginas; los capítulos largos se parten (8 páginas por parte por defecto, ajustable). Puedes ver el texto de cada parte, elegir cuáles importar y cada una se convierte en una nota que se analiza en cola, citando el documento y las páginas. Al extraer el texto se quitan los encabezados y pies que se repiten y se unen las palabras cortadas con guion. Las páginas sin texto (escaneadas o solo con dibujos) se envían como imágenes, hasta 5 por parte (`PDF_MAX_SCANNED_PAGES`); para leerlas hace falta Claude o un modelo local con visión. La lista indica qué partes ya se importaron.
+- **Revisión de la documentación:** la página *Revisión* busca tres cosas en el espacio:
+  - **Tickets actualizados:** páginas que mencionan un ticket de Jira (por ejemplo `SIM-103`) que cambió después de la última edición de la página. Con *Importar* el ticket se convierte en una nota.
+  - **Contradicciones:** secciones parecidas de páginas distintas que afirman cosas incompatibles (por ejemplo, 8 bar en el manual y 7 bar en la simulación). Las compara la IA, que también indica cuál parece desactualizada; no cuenta como contradicción una diferencia que el texto presenta como decisión del proyecto. *Proponer corrección* crea una nota dirigida a esa sección, que sigue el flujo normal de propuesta y aprobación. Sin IA esta parte no se hace.
+  - **Páginas sin cambios:** las que no se editan hace más de 180 días (ajustable; 0 lo desactiva).
+
+  Se ejecuta con *Revisar ahora* o sola cada N horas (24 por defecto), empezando por sincronizar el índice. Un hallazgo se resuelve solo cuando cambia alguna de sus páginas y se reabre si la siguiente revisión lo vuelve a encontrar; los descartados no vuelven mientras no cambie lo que los originó. Cada comparación es una consulta a la IA: por revisión se hacen como mucho 30 nuevas (ajustable) y las secciones que no cambiaron no se vuelven a comparar, así que las primeras revisiones de un espacio grande avanzan por partes. Solo se comparan las secciones más parecidas entre sí, no todas contra todas, así que puede escaparse alguna contradicción.
 - **Revisar:** en cada propuesta revisa las diferencias y la vista previa. *Editar contenido* permite corregir el XHTML antes de publicar; `[[IMAGEN:n]]` coloca la imagen n de la nota.
 - **¿No es el lugar correcto?** Elige una alternativa sugerida, una página destino o escribe una indicación ("es una decisión del proyecto, no del producto") y vuelve a analizar.
 - **Buscar:** consulta rápida de qué dice hoy la documentación sobre un tema.
@@ -133,6 +143,7 @@ Estructura:
 
 - `curator/confluence.py`: cliente de Confluence Cloud (API v2; v1 para adjuntos).
 - `curator/jira.py`: cliente de Jira Cloud (API v3) y conversión de descripciones y comentarios (formato ADF) a texto.
+- `curator/audit.py`: revisión de la documentación (tickets actualizados, contradicciones y páginas sin cambios).
 - `curator/pdf.py`: lectura de PDFs, capítulos por marcadores, limpieza del texto y conversión a imagen de las páginas sin texto.
 - `curator/storage.py`: divide las páginas en secciones por encabezados sobre el texto original, de modo que al reemplazar una sección el resto de la página no cambia. También valida el XHTML.
 - `curator/search.py`: búsqueda BM25 sin acentos (español e inglés).
@@ -155,4 +166,3 @@ Estructura:
 ## Próximos pasos posibles
 
 - Importar desde el chat que usa el equipo.
-- Revisión periódica que señale páginas desactualizadas o contradictorias entre sí.

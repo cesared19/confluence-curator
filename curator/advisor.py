@@ -69,10 +69,30 @@ class AdvisorInput:
     hint: str = ""
 
 
+class ContradictionCheck(BaseModel):
+    contradicts: bool = Field(description="True solo si las dos secciones afirman cosas incompatibles sobre lo mismo.")
+    explanation: str = Field(description="Qué dice cada una y por qué no pueden ser ciertas a la vez. Vacío si no hay contradicción.")
+    outdated: Literal["a", "b", "unknown"] = Field(
+        description="Cuál parece desactualizada según las fechas y el contenido, o unknown si no se puede saber."
+    )
+    confidence: float = Field(description="Confianza entre 0 y 1 en que hay una contradicción real.")
+    suggestion: str = Field(description="Cómo corregir la sección desactualizada, en una o dos frases. Vacío si no hay contradicción.")
+
+
+@dataclass
+class SectionRef:
+    page_title: str
+    heading: str
+    storage: str
+    updated: str
+
+
 class Advisor(Protocol):
     name: str
 
     def analyze(self, data: AdvisorInput) -> Analysis: ...
+
+    def compare(self, a: SectionRef, b: SectionRef) -> ContradictionCheck: ...
 
 
 SYSTEM_PROMPT = """\
@@ -105,6 +125,31 @@ la sube como adjunto. Incluye una imagen solo si aporta a la documentación.
 """
 
 
+COMPARE_PROMPT = """\
+Revisas la documentación de un proyecto en Confluence: una simulación en realidad virtual del uso de un producto real. \
+Recibirás dos secciones de páginas distintas que tratan temas parecidos. Decide si se contradicen: si afirman cosas \
+incompatibles sobre lo mismo (un valor, un comportamiento, una decisión, un procedimiento).
+
+No es contradicción:
+- Que una sección tenga más detalle que la otra, o que hablen de aspectos distintos del mismo tema.
+- Que la simulación difiera a propósito del producto real, cuando el texto lo presenta como decisión del proyecto.
+- Diferencias de redacción, formato o idioma.
+
+Ante la duda, responde que no se contradicen. Usa las fechas de última edición y el contenido para decir cuál parece \
+desactualizada.
+"""
+
+
+def build_compare_prompt(a: SectionRef, b: SectionRef) -> str:
+    def block(label: str, ref: SectionRef) -> str:
+        return (
+            f'<section id="{label}" page="{html.escape(ref.page_title)}" heading="{html.escape(ref.heading)}" '
+            f'last_edited="{ref.updated or "desconocida"}">\n{ref.storage}\n</section>'
+        )
+
+    return f"{block('a', a)}\n\n{block('b', b)}\n\n¿Se contradicen las secciones a y b?"
+
+
 def render_candidates(candidates: list[Candidate]) -> str:
     if not candidates:
         return "(No hay secciones candidatas: el espacio está vacío o nada coincide.)"
@@ -134,6 +179,7 @@ def build_prompt(data: AdvisorInput) -> str:
 
 class AnthropicAdvisor:
     name = "anthropic"
+    can_compare = True
 
     def __init__(self, model: str, effort: str, client=None):
         import anthropic
@@ -152,23 +198,29 @@ class AnthropicAdvisor:
                 }
             )
         content.append({"type": "text", "text": build_prompt(data)})
+        return self._parse(SYSTEM_PROMPT, content, Analysis)
+
+    def compare(self, a: SectionRef, b: SectionRef) -> ContradictionCheck:
+        return self._parse(COMPARE_PROMPT, [{"type": "text", "text": build_compare_prompt(a, b)}], ContradictionCheck)
+
+    def _parse(self, system: str, content: list[dict], output: type[BaseModel]):
         # Si los filtros de seguridad rechazan la solicitud, la API la reintenta con el modelo de respaldo.
         response = self.client.beta.messages.parse(
             model=self.model,
             max_tokens=32000,
-            system=SYSTEM_PROMPT,
+            system=system,
             messages=[{"role": "user", "content": content}],
             output_config={"effort": self.effort},
-            output_format=Analysis,
+            output_format=output,
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
         )
         if response.stop_reason == "refusal":
-            raise RuntimeError("El modelo rechazó analizar esta nota.")
+            raise RuntimeError("El modelo rechazó la solicitud.")
         if response.stop_reason == "max_tokens":
             raise RuntimeError("La respuesta se cortó por longitud; divide la nota en partes más pequeñas.")
         if response.parsed_output is None:
-            raise RuntimeError("El modelo no devolvió un análisis válido.")
+            raise RuntimeError("El modelo no devolvió una respuesta válida.")
         return response.parsed_output
 
 
@@ -192,6 +244,7 @@ class OllamaAdvisor:
     """Modelo local con Ollama (https://ollama.com). Para analizar imágenes, el modelo debe tener visión."""
 
     name = "ollama"
+    can_compare = True
 
     def __init__(self, base_url: str, model: str, context: int, transport: httpx.BaseTransport | None = None):
         self.model = model
@@ -199,16 +252,22 @@ class OllamaAdvisor:
         self.http = httpx.Client(base_url=base_url.rstrip("/"), timeout=900, transport=transport)
 
     def analyze(self, data: AdvisorInput) -> Analysis:
-        user = {"role": "user", "content": build_prompt(data)}
-        if data.images:
-            user["images"] = [base64.standard_b64encode(raw).decode() for _, raw in data.images]
+        return self._chat(SYSTEM_PROMPT, build_prompt(data), [raw for _, raw in data.images], Analysis)
+
+    def compare(self, a: SectionRef, b: SectionRef) -> ContradictionCheck:
+        return self._chat(COMPARE_PROMPT, build_compare_prompt(a, b), [], ContradictionCheck)
+
+    def _chat(self, system: str, prompt: str, images: list[bytes], output: type[BaseModel]):
+        user = {"role": "user", "content": prompt}
+        if images:
+            user["images"] = [base64.standard_b64encode(raw).decode() for raw in images]
         payload = {
             "model": self.model,
             "stream": False,
-            "format": inline_refs(Analysis.model_json_schema()),
+            "format": inline_refs(output.model_json_schema()),
             "options": {"temperature": 0, "num_ctx": self.context},
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT + "\nResponde solo con el JSON pedido."},
+                {"role": "system", "content": system + "\nResponde solo con el JSON pedido."},
                 user,
             ],
         }
@@ -222,7 +281,7 @@ class OllamaAdvisor:
         if body.get("done_reason") == "length":
             raise RuntimeError("La respuesta se cortó por longitud; aumenta OLLAMA_CONTEXT o divide la nota.")
         try:
-            return Analysis.model_validate_json(body["message"]["content"])
+            return output.model_validate_json(body["message"]["content"])
         except (KeyError, ValueError) as error:
             raise RuntimeError(f"El modelo local no devolvió un análisis válido: {error}") from error
 
@@ -231,6 +290,10 @@ class MockAdvisor:
     """Sin IA: agrega la nota a la sección con mejor coincidencia. Sirve para probar el flujo de punta a punta."""
 
     name = "mock"
+    can_compare = False  # sin IA no se detectan contradicciones
+
+    def compare(self, a: SectionRef, b: SectionRef) -> ContradictionCheck:
+        return ContradictionCheck(contradicts=False, explanation="", outdated="unknown", confidence=0, suggestion="")
 
     def analyze(self, data: AdvisorInput) -> Analysis:
         note_html = "".join(f"<p>{html.escape(line)}</p>" for line in data.note_text.splitlines() if line.strip())

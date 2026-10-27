@@ -1,6 +1,7 @@
 """Confluence simulado en memoria (CURATOR_DEMO=1) para probar la herramienta sin credenciales."""
 
 import itertools
+import re
 
 from .confluence import ConfluenceError, Page
 
@@ -19,23 +20,33 @@ SAMPLE = [
         "Simulación: comportamiento esperado",
         "1",
         "<h2>Interacciones</h2><p>El usuario toma las perillas con el gatillo del control y las gira con la muñeca.</p>"
-        "<h2>Alarmas en la simulación</h2><p>Las alarmas se reproducen con sonido espacial desde el panel.</p>",
+        "<h2>Alarmas en la simulación</h2><p>Las alarmas se reproducen con sonido espacial desde el panel. "
+        "La de sobrepresión se activa a los 7 bar.</p>",
     ),
     (
         "4",
         "Criterios de QA",
         "1",
-        "<h2>Rendimiento</h2><p>La simulación debe mantener 72 FPS en Quest 3.</p>"
+        "<h2>Rendimiento</h2><p>La simulación debe mantener 72 FPS en Quest 3. Criterio acordado en SIM-103.</p>"
         "<h2>Accesibilidad</h2><p>Todos los textos deben leerse a 1,5 m de distancia.</p>",
     ),
 ]
+
+
+SAMPLE_UPDATED = "2026-04-15T10:00:00.000Z"
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class FakeConfluence:
     base_url = "https://demo.atlassian.net"
 
     def __init__(self):
-        self.pages = {pid: Page(pid, title, parent, 1, body) for pid, title, parent, body in SAMPLE}
+        self.pages = {pid: Page(pid, title, parent, 1, body, SAMPLE_UPDATED) for pid, title, parent, body in SAMPLE}
         self.attachments: dict[str, dict[str, bytes]] = {}
         self.ids = itertools.count(100)
 
@@ -57,11 +68,11 @@ class FakeConfluence:
         current = self.get_page(page.id)
         if current.version != page.version:
             raise ConfluenceError("Conflicto de versión", 409)
-        self.pages[page.id] = Page(page.id, page.title, page.parent_id, page.version + 1, body)
+        self.pages[page.id] = Page(page.id, page.title, page.parent_id, page.version + 1, body, _now())
         return self.pages[page.id]
 
     def create_page(self, space_id: str, parent_id: str | None, title: str, body: str) -> Page:
-        page = Page(str(next(self.ids)), title, parent_id, 1, body)
+        page = Page(str(next(self.ids)), title, parent_id, 1, body, _now())
         self.pages[page.id] = page
         return page
 
@@ -119,6 +130,10 @@ class FakeJira:
 
         self.queries.append(query)
         jql = to_jql(query).upper()
+        if jql.startswith("KEY IN ("):
+            missing = [k for k in re.findall(r"[A-Z][A-Z0-9_]+-\d+", jql) if k not in self.issues]
+            if missing:
+                raise ConfluenceError(f"Jira respondió 400: no existe el ticket {missing[0]}", 400)
         keys = [k for k in self.issues if k in jql] or list(self.issues)
         return [
             IssueSummary(k, self.issues[k][0], self.issues[k][2], self.issues[k][1], self.issues[k][3]) for k in keys

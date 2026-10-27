@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS pages (
     title TEXT NOT NULL,
     parent_id TEXT,
     version INTEGER NOT NULL,
-    body TEXT NOT NULL
+    body TEXT NOT NULL,
+    updated TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS notes (
@@ -47,6 +48,31 @@ CREATE TABLE IF NOT EXISTS pdf_imports (
     chunk_key TEXT NOT NULL,
     note_id INTEGER NOT NULL REFERENCES notes(id),
     imported_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_findings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    fingerprint TEXT NOT NULL UNIQUE,
+    page_id TEXT NOT NULL,
+    section_index INTEGER NOT NULL,
+    page_version INTEGER NOT NULL,
+    other_page_id TEXT NOT NULL DEFAULT '',
+    other_section_index INTEGER NOT NULL DEFAULT -1,
+    other_page_version INTEGER NOT NULL DEFAULT 0,
+    issue_key TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    suggestion TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 1,
+    status TEXT NOT NULL,
+    note_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_pairs (
+    pair_hash TEXT PRIMARY KEY,
+    checked_at TEXT NOT NULL,
+    result TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS note_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,9 +117,14 @@ class Database:
         # La conexión se comparte entre las peticiones y el análisis en segundo plano.
         self.lock = threading.RLock()
         self.conn.executescript(SCHEMA)
-        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(notes)")}
-        if "analyzing" not in columns:
-            self.conn.execute("ALTER TABLE notes ADD COLUMN analyzing INTEGER NOT NULL DEFAULT 0")
+        # Columnas agregadas después de 0.0.1: las bases existentes se actualizan al abrirlas.
+        for table, column, definition in [
+            ("notes", "analyzing", "INTEGER NOT NULL DEFAULT 0"),
+            ("pages", "updated", "TEXT NOT NULL DEFAULT ''"),
+        ]:
+            columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            if column not in columns:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         with self.lock, self.conn:
@@ -118,16 +149,16 @@ class Database:
         with self.lock, self.conn:
             self.conn.execute("DELETE FROM pages")
             self.conn.executemany(
-                "INSERT INTO pages(id, title, parent_id, version, body) VALUES (?, ?, ?, ?, ?)",
-                [(p.id, p.title, p.parent_id, p.version, p.body) for p in pages],
+                "INSERT INTO pages(id, title, parent_id, version, body, updated) VALUES (?, ?, ?, ?, ?, ?)",
+                [(p.id, p.title, p.parent_id, p.version, p.body, p.updated) for p in pages],
             )
 
     def upsert_page(self, page) -> None:
         self.execute(
-            "INSERT INTO pages(id, title, parent_id, version, body) VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO pages(id, title, parent_id, version, body, updated) VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET title = excluded.title, parent_id = excluded.parent_id, "
-            "version = excluded.version, body = excluded.body",
-            (page.id, page.title, page.parent_id, page.version, page.body),
+            "version = excluded.version, body = excluded.body, updated = excluded.updated",
+            (page.id, page.title, page.parent_id, page.version, page.body, page.updated),
         )
 
 

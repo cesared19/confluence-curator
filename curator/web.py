@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from . import __version__, storage
 from .advisor import AnthropicAdvisor, MockAdvisor, OllamaAdvisor
+from .audit import KINDS
 from .config import Settings, load_settings
 from .db import Database, loads
 from .service import Curator, CuratorError
@@ -137,6 +138,7 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
             pages=len(curator.pages()),
             last_sync=curator.db.get_meta("last_sync"),
             watch=curator.watch_settings(),
+            open_findings=curator.auditor.counts().get("open", 0),
             error=error,
             message=message,
         )
@@ -335,6 +337,64 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
         if len(note_ids) == 1:
             return back(f"/notes/{note_ids[0]}")
         return back("/", message=f"{len(note_ids)} partes del PDF importadas; se están analizando de a una.")
+
+    @app.get("/audit", response_class=HTMLResponse)
+    def audit_page(request: Request, status: str = "open", error: str = "", message: str = ""):
+        if status not in ("open", "dismissed", "resolved"):
+            status = "open"
+        auditor = curator.auditor
+        url = curator.confluence.page_url if curator.confluence else (lambda page_id: "")
+        findings = []
+        for row in auditor.findings(status):
+            section = curator.section(row["page_id"], row["section_index"])
+            findings.append(
+                {
+                    "row": row,
+                    "url": url(row["page_id"]),
+                    "other_url": url(row["other_page_id"]) if row["other_page_id"] else "",
+                    "heading": section.heading if section else "",
+                }
+            )
+        return render(
+            request,
+            "audit.html",
+            audit=auditor.settings(),
+            counts=auditor.counts(),
+            findings=findings,
+            status=status,
+            KINDS=KINDS,
+            error=error,
+            message=message,
+        )
+
+    @app.post("/audit/settings")
+    def audit_settings(
+        enabled: str = Form(""), interval: int = Form(24), stale_days: int = Form(180), max_pairs: int = Form(30)
+    ):
+        try:
+            curator.auditor.save(enabled == "1", interval, stale_days, max_pairs)
+        except ValueError as error:
+            return back("/audit", error=str(error))
+        return back("/audit", message="Configuración guardada.")
+
+    @app.post("/audit/run")
+    def audit_run():
+        if not curator.auditor.start():
+            return back("/audit", error="Ya hay una revisión en curso.")
+        return back("/audit", message="Revisión iniciada; la página se actualiza sola.")
+
+    @app.post("/audit/findings/{finding_id}/fix")
+    def audit_fix(finding_id: int):
+        try:
+            note_id = curator.auditor.fix(finding_id)
+        except (ValueError, CuratorError) as error:
+            return back("/audit", error=str(error))
+        return back(f"/notes/{note_id}")
+
+    @app.post("/audit/findings/{finding_id}/dismiss")
+    def audit_dismiss(finding_id: int):
+        curator.auditor.dismiss(finding_id)
+        return back("/audit", message="Hallazgo descartado.")
 
     @app.get("/index", response_class=HTMLResponse)
     def index_page(request: Request, error: str = "", message: str = ""):

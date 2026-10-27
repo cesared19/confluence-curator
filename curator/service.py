@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import storage
 from .advisor import Advisor, AdvisorInput, Analysis, Candidate
+from .audit import Auditor
 from .confluence import ConfluenceError
 from .db import Database, loads, now
 from .search import BM25, Document
@@ -25,6 +26,7 @@ class IndexedPage:
     parent_id: str | None
     version: int
     body: str
+    updated: str = ""
 
 
 class Curator:
@@ -54,6 +56,7 @@ class Curator:
         self.worker_lock = threading.Lock()
         self.watch_lock = threading.Lock()
         self.watcher: threading.Thread | None = None
+        self.auditor = Auditor(self)
 
     # Índice ---------------------------------------------------------------
 
@@ -462,17 +465,25 @@ class Curator:
         return elapsed >= timedelta(minutes=settings["interval"])
 
     def start_watcher(self, poll_seconds: int = 30) -> None:
+        """Hilo que lanza la revisión automática de Jira y la revisión de la documentación cuando corresponde."""
+
         def loop() -> None:
             while True:
+                # Los errores quedan guardados (watch_last_error, audit_last_error) y se muestran en la interfaz.
                 if self.watch_due():
                     try:
                         self.run_watch()
                     except Exception:
-                        pass  # el error queda guardado en watch_last_error y se muestra en la interfaz
+                        pass
+                if self.auditor.due():
+                    try:
+                        self.auditor.run()
+                    except Exception:
+                        pass
                 time.sleep(poll_seconds)
 
         if self.watcher is None:
-            self.watcher = threading.Thread(target=loop, name="curator-jira-watch", daemon=True)
+            self.watcher = threading.Thread(target=loop, name="curator-scheduler", daemon=True)
             self.watcher.start()
 
     # PDFs -------------------------------------------------------------------

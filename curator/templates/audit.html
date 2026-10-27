@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Revisión · Confluence Curator{% endblock %}
+{% block head %}{% if audit.running %}<meta http-equiv="refresh" content="4">{% endif %}{% endblock %}
+{% block content %}
+<h1>Revisión de la documentación</h1>
+
+<section class="card">
+	{% if audit.running %}
+	<p role="status"><strong>Revisión en curso…</strong> <span class="muted">La página se actualiza sola.</span></p>
+	{% elif audit.last_run %}
+	<p class="muted">Última revisión: {{ audit.last_run|when }}{% if audit.last_result %} · {{ audit.last_result }}{% endif %}</p>
+	{% else %}
+	<p class="muted">Todavía no se hizo ninguna revisión.</p>
+	{% endif %}
+	{% if audit.last_error %}<div class="flash error">Último error: {{ audit.last_error }}</div>{% endif %}
+	<p class="muted">Busca páginas que mencionan tickets de Jira actualizados después de la última edición de la página{% if curator.advisor.can_compare %}, secciones de páginas distintas que se contradicen{% endif %} y páginas que no cambian hace mucho. {% if not curator.advisor.can_compare %}Para detectar contradicciones hace falta la IA (Claude o un modelo local).{% endif %} Cada revisión empieza sincronizando el índice con Confluence.</p>
+	<form method="post" action="/audit/run" data-busy="Iniciando…">
+		<button class="primary" type="submit" {% if audit.running %}disabled{% endif %}>Revisar ahora</button>
+	</form>
+</section>
+
+<nav class="tabs" aria-label="Estado de los hallazgos">
+	{% for key, label in [('open', 'Abiertos'), ('dismissed', 'Descartados'), ('resolved', 'Resueltos')] %}
+	<a href="/audit?status={{ key }}" {% if status == key %}aria-current="page"{% endif %}>{{ label }} ({{ counts.get(key, 0) }})</a>
+	{% endfor %}
+</nav>
+
+{% for f in findings %}
+{% set row = f.row %}
+<section class="card">
+	<p>
+		<span class="badge {{ 'danger' if row.kind == 'contradiction' else 'warn' if row.kind == 'ticket' else '' }}">{{ KINDS[row.kind] }}</span>
+		{% if row.kind == 'contradiction' %}<span class="muted">Confianza {{ (row.confidence * 100)|round|int }}%</span>{% endif %}
+	</p>
+	<h2>{{ row.title }}</h2>
+	<p>{{ row.detail }}</p>
+	{% if row.suggestion %}<p class="muted"><strong>Sugerencia:</strong> {{ row.suggestion }}</p>{% endif %}
+	<p class="muted">
+		{% if f.url %}<a href="{{ f.url }}" target="_blank">{{ row.page_title or row.page_id }}{% if f.heading %} › {{ f.heading }}{% endif %}</a>{% else %}{{ row.page_title }}{% endif %}
+		{% if row.other_page_id %} · frente a {% if f.other_url %}<a href="{{ f.other_url }}" target="_blank">{{ row.other_title or row.other_page_id }}</a>{% else %}{{ row.other_title }}{% endif %}{% endif %}
+		{% if row.note_id %} · <a href="/notes/{{ row.note_id }}">nota #{{ row.note_id }}</a>{% endif %}
+	</p>
+	{% if status == 'open' %}
+	<form class="actions" method="post" action="/audit/findings/{{ row.id }}/fix" data-busy="Preparando…">
+		{% if row.kind == 'ticket' %}
+		<button class="primary" type="submit">Importar {{ row.issue_key }}</button>
+		{% elif row.kind == 'contradiction' %}
+		<button class="primary" type="submit">Proponer corrección</button>
+		{% endif %}
+		<button type="submit" formaction="/audit/findings/{{ row.id }}/dismiss">{{ 'Marcar como revisada' if row.kind == 'stale' else 'Descartar' }}</button>
+	</form>
+	{% endif %}
+</section>
+{% else %}
+<p class="muted">{% if status == 'open' %}No hay hallazgos abiertos.{% elif status == 'dismissed' %}No hay hallazgos descartados.{% else %}No hay hallazgos resueltos.{% endif %}</p>
+{% endfor %}
+<p class="muted">Un hallazgo se resuelve solo cuando cambia alguna de sus páginas; si la siguiente revisión lo vuelve a encontrar, se reabre. Los descartados no vuelven a aparecer mientras no cambie lo que los originó.</p>
+
+<form class="card" method="post" action="/audit/settings">
+	<h2>Revisión automática</h2>
+	<div class="row">
+		<div>
+			<label for="audit-enabled">Estado</label>
+			<select id="audit-enabled" name="enabled">
+				<option value="1" {% if audit.enabled %}selected{% endif %}>Activada</option>
+				<option value="" {% if not audit.enabled %}selected{% endif %}>Desactivada</option>
+			</select>
+		</div>
+		<div>
+			<label for="audit-interval">Cada (horas)</label>
+			<input id="audit-interval" name="interval" type="number" min="1" value="{{ audit.interval }}">
+		</div>
+	</div>
+	<div class="row">
+		<div>
+			<label for="audit-stale">Avisar si una página no cambia en (días)</label>
+			<input id="audit-stale" name="stale_days" type="number" min="0" value="{{ audit.stale_days }}">
+			<p class="muted">0 desactiva este aviso.</p>
+		</div>
+		<div>
+			<label for="audit-pairs">Comparaciones nuevas por revisión</label>
+			<input id="audit-pairs" name="max_pairs" type="number" min="0" max="500" value="{{ audit.max_pairs }}">
+			<p class="muted">Cada comparación es una consulta a la IA. Las secciones que no cambiaron no se vuelven a comparar.</p>
+		</div>
+	</div>
+	<div class="actions"><button class="primary" type="submit">Guardar</button></div>
+</form>
+{% endblock %}

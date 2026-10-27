@@ -18,6 +18,7 @@ class Page:
     parent_id: str | None
     version: int
     body: str
+    updated: str = ""  # fecha ISO de la última versión
 
 
 class ConfluenceClient:
@@ -107,4 +108,5 @@ class ConfluenceClient:
             parent_id=str(item["parentId"]) if item.get("parentId") else None,
             version=int(item.get("version", {}).get("number", 1)),
             body=item.get("body", {}).get("storage", {}).get("value", ""),
+            updated=item.get("version", {}).get("createdAt", ""),
         )
