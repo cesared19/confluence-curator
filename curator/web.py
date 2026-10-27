@@ -25,6 +25,7 @@ ACTIONS = {
     "create_page": "Crear página nueva",
 }
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_PDF_BYTES = 50 * 1024 * 1024
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
@@ -61,6 +62,7 @@ def build_curator(settings: Settings) -> Curator:
         settings.candidates,
         jira=jira,
         jira_max_images=settings.jira_max_images,
+        pdf_max_scanned=settings.pdf_max_scanned,
     )
     curator.resume_pending()
     curator.start_watcher()
@@ -277,6 +279,62 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
         except CuratorError as error:
             return back("/jira", error=f"No se pudo revisar Jira: {error}")
         return back("/jira", message=f"Revisión de Jira: {result}")
+
+    @app.get("/pdf", response_class=HTMLResponse)
+    def pdf_list(request: Request, error: str = "", message: str = ""):
+        return render(request, "pdfs.html", documents=curator.pdf_documents(), sources=SOURCES, error=error, message=message)
+
+    @app.post("/pdf")
+    async def pdf_upload(file: UploadFile | None = None, source_type: str = Form("Manual del producto")):
+        if file is None or not file.filename:
+            return back("/pdf", error="Elige un archivo PDF.")
+        data = await file.read()
+        if len(data) > MAX_PDF_BYTES:
+            return back("/pdf", error=f"{file.filename}: el PDF supera 50 MB.")
+        if not data.startswith(b"%PDF"):
+            return back("/pdf", error=f"{file.filename}: no es un PDF.")
+        try:
+            document_id = curator.add_pdf(file.filename, data, source_type)
+        except CuratorError as error:
+            return back("/pdf", error=str(error))
+        return back(f"/pdf/{document_id}")
+
+    @app.get("/pdf/{document_id}", response_class=HTMLResponse)
+    def pdf_detail(request: Request, document_id: int, mode: str = "chapters", max_pages: int = 8, error: str = "", message: str = ""):
+        try:
+            document = curator.pdf_document(document_id)
+            chunks, chapters = curator.pdf_plan(document_id, mode, max_pages)
+        except CuratorError as failure:
+            return back("/pdf", error=str(failure))
+        return render(
+            request,
+            "pdf.html",
+            document=document,
+            chunks=chunks,
+            chapters=chapters,
+            imported=curator.pdf_imported(document_id),
+            mode=mode,
+            max_pages=max_pages,
+            error=error,
+            message=message,
+        )
+
+    @app.post("/pdf/{document_id}/import")
+    def pdf_import(
+        document_id: int,
+        keys: list[str] = Form(default_factory=list),
+        mode: str = Form("chapters"),
+        max_pages: int = Form(8),
+    ):
+        if not keys:
+            return back(f"/pdf/{document_id}", error="Selecciona al menos una parte.")
+        try:
+            note_ids = curator.import_pdf_chunks(document_id, keys, mode, max_pages)
+        except CuratorError as error:
+            return back(f"/pdf/{document_id}", error=str(error))
+        if len(note_ids) == 1:
+            return back(f"/notes/{note_ids[0]}")
+        return back("/", message=f"{len(note_ids)} partes del PDF importadas; se están analizando de a una.")
 
     @app.get("/index", response_class=HTMLResponse)
     def index_page(request: Request, error: str = "", message: str = ""):

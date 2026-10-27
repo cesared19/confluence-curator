@@ -38,6 +38,7 @@ class Curator:
         jira=None,
         jira_max_images: int = 5,
         background: bool = True,
+        pdf_max_scanned: int = 5,
     ):
         self.db = db
         self.advisor = advisor
@@ -46,6 +47,7 @@ class Curator:
         self.candidate_limit = candidates
         self.jira = jira
         self.jira_max_images = jira_max_images
+        self.pdf_max_scanned = pdf_max_scanned
         self.background = background
         self.pending: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
@@ -472,6 +474,90 @@ class Curator:
         if self.watcher is None:
             self.watcher = threading.Thread(target=loop, name="curator-jira-watch", daemon=True)
             self.watcher.start()
+
+    # PDFs -------------------------------------------------------------------
+
+    def add_pdf(self, filename: str, data: bytes, source_type: str) -> int:
+        from . import pdf
+
+        try:
+            reader = pdf.open_pdf(data)
+        except pdf.PdfError as error:
+            raise CuratorError(str(error)) from error
+        cursor = self.db.execute(
+            "INSERT INTO pdf_documents(filename, title, source_type, pages, data, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (filename, pdf.document_title(reader, filename), source_type, len(reader.pages), data, now()),
+        )
+        return cursor.lastrowid
+
+    def pdf_documents(self):
+        return self.db.all(
+            "SELECT d.id, d.filename, d.title, d.pages, d.source_type, d.created_at, "
+            "(SELECT COUNT(DISTINCT chunk_key) FROM pdf_imports i WHERE i.document_id = d.id) AS imported "
+            "FROM pdf_documents d ORDER BY d.id DESC"
+        )
+
+    def pdf_document(self, document_id: int):
+        row = self.db.one("SELECT * FROM pdf_documents WHERE id = ?", (document_id,))
+        if row is None:
+            raise CuratorError("El PDF no existe.")
+        return row
+
+    def pdf_plan(self, document_id: int, mode: str = "chapters", max_pages: int = 8):
+        """Partes del PDF (se guardan para no releerlo en cada visita) y si salen de los capítulos."""
+        from . import pdf
+
+        if not 1 <= max_pages <= 50:
+            raise CuratorError("Las páginas por parte deben estar entre 1 y 50.")
+        document = self.pdf_document(document_id)
+        params = json.dumps([mode, max_pages, self.pdf_max_scanned])
+        if document["plan_params"] == params:
+            cached = json.loads(document["plan"])
+            return [pdf.Chunk(**c) for c in cached["chunks"]], cached["chapters"]
+        try:
+            chunks, chapters = pdf.plan(document["data"], mode, max_pages, self.pdf_max_scanned)
+        except pdf.PdfError as error:
+            raise CuratorError(str(error)) from error
+        plan = json.dumps({"chunks": [c.to_dict() for c in chunks], "chapters": chapters}, ensure_ascii=False)
+        self.db.execute("UPDATE pdf_documents SET plan_params = ?, plan = ? WHERE id = ?", (params, plan, document_id))
+        return chunks, chapters
+
+    def pdf_imported(self, document_id: int) -> dict[str, int]:
+        rows = self.db.all(
+            "SELECT chunk_key, note_id FROM pdf_imports WHERE document_id = ? ORDER BY imported_at, rowid", (document_id,)
+        )
+        return {row["chunk_key"]: row["note_id"] for row in rows}
+
+    def import_pdf_chunks(self, document_id: int, keys: list[str], mode: str, max_pages: int) -> list[int]:
+        """Crea una nota por parte elegida; las páginas sin texto viajan como imágenes."""
+        from . import pdf
+
+        document = self.pdf_document(document_id)
+        chunks, _ = self.pdf_plan(document_id, mode, max_pages)
+        note_ids = []
+        for chunk in chunks:
+            if chunk.key not in keys:
+                continue
+            lines = [f"{document['title']}: {chunk.title} (páginas {chunk.pages})"]
+            if len(chunk.scanned) == 1:
+                lines.append(f"La página {chunk.scanned[0]} no tiene texto extraíble y se adjunta como imagen.")
+            elif chunk.scanned:
+                listed = ", ".join(str(p) for p in chunk.scanned)
+                lines.append(f"Las páginas {listed} no tienen texto extraíble y se adjuntan como imágenes, en ese orden.")
+            if chunk.text:
+                lines += ["", chunk.text]
+            images = pdf.render_pages(document["data"], chunk.scanned) if chunk.scanned else []
+            note_id = self.create_note(
+                "\n".join(lines), document["source_type"], f"{document['title']}, p. {chunk.pages}", images
+            )
+            self.db.execute(
+                "INSERT INTO pdf_imports(document_id, chunk_key, note_id, imported_at) VALUES (?, ?, ?, ?)",
+                (document_id, chunk.key, note_id, now()),
+            )
+            note_ids.append(note_id)
+        for note_id in note_ids:
+            self.enqueue(note_id)
+        return note_ids
 
     # Consultas para la interfaz --------------------------------------------
 

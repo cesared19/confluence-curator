@@ -4,7 +4,7 @@
 
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
-Le das un texto o una imagen, o la traes directamente de tickets de Jira, y la herramienta:
+Le das un texto o una imagen, la traes directamente de tickets de Jira o subes un PDF (por ejemplo, el manual del producto), y la herramienta:
 
 1. Busca en el espacio de Confluence las secciones relacionadas.
 2. Propone dónde va: actualizar una sección, agregar al final de una página o crear una página nueva. Muestra el porqué, una confianza y las contradicciones con lo ya publicado (por ejemplo, "antes 8 bar, ahora 7,5 bar").
@@ -28,6 +28,10 @@ Tomadas en el modo demo, con Confluence y Jira simulados y propuestas de ejemplo
 **Jira:** importación a mano y revisión automática con una consulta guardada.
 
 ![Importación desde Jira y revisión automática](docs/screenshots/jira.png)
+
+**PDF:** un manual dividido por capítulos, con la página escaneada detectada.
+
+![Manual en PDF dividido en partes](docs/screenshots/pdf.png)
 
 <details>
 <summary>Modo oscuro y móvil</summary>
@@ -103,6 +107,7 @@ La herramienta solo lee Jira: no cambia tickets ni agrega comentarios.
 - **Bandeja:** pega el texto (un hilo de chat, la descripción y los comentarios de un ticket, un fragmento del manual), indica la fuente y adjunta imágenes si hacen falta. Una nota puede generar varias propuestas si toca varios temas.
 - **Jira:** busca con JQL (por ejemplo `project = SIM AND updated >= -14d ORDER BY updated DESC`) o escribiendo claves (`SIM-101, SIM-102`). Elige los tickets y cada uno se convierte en una nota con sus datos (tipo, estado, etiquetas, versiones, responsables), la descripción, todos los comentarios, el enlace y las imágenes adjuntas (hasta 10 MB cada una). Las notas se analizan en segundo plano, de a una; la bandeja muestra *Analizando…* y se actualiza sola. La lista indica qué tickets ya se importaron y cuáles cambiaron desde entonces, que quedan marcados para volver a importarlos.
 - **Revisión automática de Jira:** en la página Jira guarda una consulta JQL y cada cuántos minutos revisarla (mínimo 5). La herramienta importa sola los tickets nuevos o que cambiaron, hasta 20 por revisión; los demás quedan para la siguiente. Al activarla solo trae lo que cambie de ahí en adelante, para no llenar la bandeja con tickets viejos; esos se importan a mano. *Revisar ahora* la ejecuta en el momento. La bandeja muestra cuándo fue la última revisión y si falló. La revisión corre mientras la aplicación esté encendida.
+- **PDF:** sube un manual, una especificación o un documento de diseño (hasta 50 MB). La herramienta lo divide por capítulos usando los marcadores del PDF o, si no tiene, en bloques de páginas; los capítulos largos se parten (8 páginas por parte por defecto, ajustable). Puedes ver el texto de cada parte, elegir cuáles importar y cada una se convierte en una nota que se analiza en cola, citando el documento y las páginas. Al extraer el texto se quitan los encabezados y pies que se repiten y se unen las palabras cortadas con guion. Las páginas sin texto (escaneadas o solo con dibujos) se envían como imágenes, hasta 5 por parte (`PDF_MAX_SCANNED_PAGES`); para leerlas hace falta Claude o un modelo local con visión. La lista indica qué partes ya se importaron.
 - **Revisar:** en cada propuesta revisa las diferencias y la vista previa. *Editar contenido* permite corregir el XHTML antes de publicar; `[[IMAGEN:n]]` coloca la imagen n de la nota.
 - **¿No es el lugar correcto?** Elige una alternativa sugerida, una página destino o escribe una indicación ("es una decisión del proyecto, no del producto") y vuelve a analizar.
 - **Buscar:** consulta rápida de qué dice hoy la documentación sobre un tema.
@@ -128,6 +133,7 @@ Estructura:
 
 - `curator/confluence.py`: cliente de Confluence Cloud (API v2; v1 para adjuntos).
 - `curator/jira.py`: cliente de Jira Cloud (API v3) y conversión de descripciones y comentarios (formato ADF) a texto.
+- `curator/pdf.py`: lectura de PDFs, capítulos por marcadores, limpieza del texto y conversión a imagen de las páginas sin texto.
 - `curator/storage.py`: divide las páginas en secciones por encabezados sobre el texto original, de modo que al reemplazar una sección el resto de la página no cambia. También valida el XHTML.
 - `curator/search.py`: búsqueda BM25 sin acentos (español e inglés).
 - `curator/advisor.py`: asesores (Claude y Ollama con salida estructurada, y modo sin IA).
@@ -142,10 +148,11 @@ Estructura:
 - Las secciones se definen por encabezados (`h1` a `h6`). En páginas sin encabezados, la página entera es una sola sección.
 - No lee directamente Slack ni Teams: los mensajes del chat se pegan a mano.
 - Volver a importar un ticket trae el ticket completo otra vez, no solo lo nuevo. Con la IA activada no suele duplicar nada, porque compara con lo ya publicado, pero el análisis tarda más.
-- De Jira solo trae imágenes adjuntas; los demás archivos (PDF, videos, logs) quedan fuera.
+- De Jira solo trae imágenes adjuntas; los demás archivos (PDF, videos, logs) quedan fuera. Un PDF adjunto a un ticket se puede descargar y subir en la página PDF.
+- De los PDFs con texto no se extraen las figuras: los diagramas de una página con texto no llegan al análisis. Si una figura importa, súbela como imagen en una nota.
+- Las tablas de los PDFs llegan como texto plano, sin columnas.
 
 ## Próximos pasos posibles
 
 - Importar desde el chat que usa el equipo.
-- Cargar PDFs de manuales completos y repartirlos en varias propuestas.
 - Revisión periódica que señale páginas desactualizadas o contradictorias entre sí.

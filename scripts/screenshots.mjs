@@ -72,6 +72,10 @@ await shot('propuesta.png', { fullPage: true })
 await page.goto(`${base}/jira?q=${encodeURIComponent('project = SIM ORDER BY updated DESC')}`)
 await shot('jira.png', { fullPage: true })
 
+await page.goto(`${base}/pdf/1`)
+await page.locator('details summary').first().click()
+await shot('pdf.png', { fullPage: true })
+
 await page.emulateMedia({ colorScheme: 'dark' })
 await page.goto(`${base}/notes/2`)
 await shot('propuesta-oscuro.png', { fullPage: true })

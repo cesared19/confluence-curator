@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ document.title }} · Confluence Curator{% endblock %}
+{% block content %}
+<h1>{{ document.title }}</h1>
+<p class="muted">{{ document.filename }} · {{ document.pages }} páginas · {{ document.source_type }}</p>
+
+<form class="card" method="get" action="/pdf/{{ document.id }}">
+	<h2>Cómo dividirlo</h2>
+	<div class="row">
+		<div>
+			<label for="mode">División</label>
+			<select id="mode" name="mode">
+				<option value="chapters" {% if mode == 'chapters' %}selected{% endif %}>Por capítulos (marcadores del PDF)</option>
+				<option value="pages" {% if mode == 'pages' %}selected{% endif %}>Por bloques de páginas</option>
+			</select>
+		</div>
+		<div>
+			<label for="max_pages">Máximo de páginas por parte</label>
+			<input id="max_pages" name="max_pages" type="number" min="1" max="50" value="{{ max_pages }}">
+		</div>
+	</div>
+	{% if mode == 'chapters' and not chapters %}
+	<p class="muted">Este PDF no tiene marcadores de capítulos, así que se divide por bloques de páginas.</p>
+	{% endif %}
+	<p class="muted">Los capítulos más largos se parten. Las partes con páginas sin texto (escaneadas) se limitan a {{ curator.pdf_max_scanned }} páginas, porque esas páginas se envían como imágenes.</p>
+	<div class="actions"><button type="submit">Aplicar</button></div>
+</form>
+
+<form class="card" method="post" action="/pdf/{{ document.id }}/import" data-busy="Importando…">
+	<input type="hidden" name="mode" value="{{ mode }}">
+	<input type="hidden" name="max_pages" value="{{ max_pages }}">
+	<h2>{{ chunks|length }} partes</h2>
+	<table class="list">
+		<thead><tr><th><span class="visually-hidden">Elegir</span></th><th>Parte</th><th>Páginas</th><th>Contenido</th><th>En Curator</th></tr></thead>
+		<tbody>
+		{% for c in chunks %}
+		<tr>
+			<td><input type="checkbox" name="keys" value="{{ c.key }}" id="part-{{ c.key }}" aria-label="Importar {{ c.title }}" {% if c.key not in imported %}checked{% endif %}></td>
+			<td>
+				<label for="part-{{ c.key }}" class="inline">{{ c.title }}</label>
+				{% if c.text %}<details><summary class="muted">Ver texto</summary><div class="note-text muted">{{ c.text|truncate(700) }}</div></details>{% endif %}
+			</td>
+			<td>{{ c.pages }}</td>
+			<td>
+				{{ '{:,}'.format(c.text|length).replace(',', '.') }} caracteres
+				{% if c.scanned %}<br><span class="badge warn">{{ c.scanned|length }} {{ 'página escaneada' if c.scanned|length == 1 else 'páginas escaneadas' }}</span>{% endif %}
+			</td>
+			<td>{% if c.key in imported %}<span class="badge ok">Importada: <a href="/notes/{{ imported[c.key] }}">nota #{{ imported[c.key] }}</a></span>{% else %}<span class="badge">Nueva</span>{% endif %}</td>
+		</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	<p class="muted">Cada parte elegida se analiza por separado, de a una, y genera sus propias propuestas. Conviene empezar por los capítulos que más se usan en el proyecto.</p>
+	<div class="actions"><button class="primary" type="submit">Importar y analizar las seleccionadas</button></div>
+</form>
+{% endblock %}

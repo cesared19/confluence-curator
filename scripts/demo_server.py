@@ -100,11 +100,63 @@ class ExampleAdvisor:
         return MockAdvisor().analyze(data)
 
 
+def sample_manual() -> bytes:
+    """Manual de ejemplo con marcadores de capítulos y una página escaneada (requiere reportlab)."""
+    import io
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    chapters = [
+        ("1. Seguridad", ["Use guantes y lentes de protección durante la operación.", "No opere el equipo con la tapa abierta."]),
+        ("2. Encendido y apagado", ["Mantenga presionado POWER durante 3 segundos.", "El indicador verde confirma el arranque."]),
+        ("3. Panel de control", ["El panel tiene cinco perillas: presión, temperatura, flujo, modo y volumen.", "La perilla de modo tiene tres posiciones: manual, automático y mantenimiento."]),
+        ("4. Alarmas", ["La alarma de sobrepresión suena a partir de 7,5 bar.", "Gire la perilla de modo a mantenimiento para silenciarla."]),
+        ("5. Mantenimiento", ["Revise los sellos cada 500 horas de uso.", "Reemplace el filtro cada 1.000 horas."]),
+    ]
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.setTitle("Manual de operación X-200 v2.3")
+    number = 0
+    for index, (name, lines) in enumerate(chapters):
+        for page in range(3):
+            number += 1
+            if page == 0:
+                c.bookmarkPage(f"c{index}")
+                c.addOutlineEntry(name, f"c{index}", level=0)
+            if index == 2 and page == 2:
+                c.setFillGray(0.85)
+                c.rect(90, 250, 410, 420, fill=1, stroke=0)
+                c.setFillGray(0.3)
+                for knob in range(5):
+                    c.circle(140 + knob * 80, 460, 28, fill=1)
+                c.setFillGray(0)
+            else:
+                c.setFont("Helvetica", 9)
+                c.drawString(72, 805, "ACME Industrial - Manual de operación X-200 v2.3")
+                c.setFont("Helvetica-Bold", 14)
+                c.drawString(72, 760, name)
+                c.setFont("Helvetica", 11)
+                y = 730
+                for line in lines:
+                    c.drawString(72, y, line if page == 0 else f"{line} (detalle {page})")
+                    y -= 18
+                c.setFont("Helvetica", 9)
+                c.drawString(72, 40, f"Página {number}")
+            c.showPage()
+    c.save()
+    return buffer.getvalue()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8770)
     args = parser.parse_args()
     curator = Curator(Database(":memory:"), ExampleAdvisor(), FakeConfluence(), "DEMO", jira=FakeJira())
+    try:
+        curator.add_pdf("manual-x200-v2.3.pdf", sample_manual(), "Manual del producto")
+    except ImportError:
+        print("reportlab no está instalado: el demo arranca sin el manual de ejemplo.")
     uvicorn.run(create_app(curator, Settings()), host="127.0.0.1", port=args.port, log_level="warning")
 
 

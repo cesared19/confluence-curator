@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}PDF · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Importar un PDF</h1>
+<form class="card" method="post" action="/pdf" enctype="multipart/form-data" data-busy="Leyendo PDF…">
+	<label for="file">Archivo</label>
+	<input id="file" name="file" type="file" accept="application/pdf,.pdf" required>
+	<p class="muted">Un manual del producto, una especificación o un documento de diseño, hasta 50 MB. La herramienta lo divide en partes (por capítulos si el PDF tiene marcadores) y eliges cuáles analizar. Cada parte se convierte en una nota.</p>
+	<label for="source_type">Fuente</label>
+	<select id="source_type" name="source_type">
+		{% for s in sources %}<option {% if s == 'Manual del producto' %}selected{% endif %}>{{ s }}</option>{% endfor %}
+	</select>
+	<div class="actions"><button class="primary" type="submit">Subir y ver las partes</button></div>
+</form>
+
+{% if documents %}
+<h2>PDFs subidos</h2>
+<div class="card">
+	<table class="list">
+		<thead><tr><th>Documento</th><th>Páginas</th><th>Fuente</th><th>Partes importadas</th><th>Subido</th></tr></thead>
+		<tbody>
+		{% for d in documents %}
+		<tr>
+			<td><a href="/pdf/{{ d.id }}">{{ d.title }}</a>{% if d.title != d.filename %} <span class="muted">· {{ d.filename }}</span>{% endif %}</td>
+			<td>{{ d.pages }}</td>
+			<td>{{ d.source_type }}</td>
+			<td>{{ d.imported }}</td>
+			<td>{{ d.created_at|when }}</td>
+		</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+</div>
+{% endif %}
+{% endblock %}

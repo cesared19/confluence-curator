@@ -35,6 +35,7 @@ class Settings:
     jira_email: str = ""
     jira_api_token: str = ""
     jira_max_images: int = 5
+    pdf_max_scanned: int = 5
 
     @property
     def confluence_configured(self) -> bool:
@@ -74,4 +75,5 @@ def load_settings() -> Settings:
         jira_email=os.environ.get("JIRA_EMAIL", os.environ.get("CONFLUENCE_EMAIL", "")),
         jira_api_token=os.environ.get("JIRA_API_TOKEN", os.environ.get("CONFLUENCE_API_TOKEN", "")),
         jira_max_images=int(os.environ.get("JIRA_MAX_IMAGES", "5")),
+        pdf_max_scanned=int(os.environ.get("PDF_MAX_SCANNED_PAGES", "5")),
     )

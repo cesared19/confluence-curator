@@ -31,6 +31,23 @@ CREATE TABLE IF NOT EXISTS jira_imports (
     note_id INTEGER NOT NULL REFERENCES notes(id),
     imported_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pdf_documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    pages INTEGER NOT NULL,
+    data BLOB NOT NULL,
+    plan_params TEXT NOT NULL DEFAULT '',
+    plan TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pdf_imports (
+    document_id INTEGER NOT NULL REFERENCES pdf_documents(id),
+    chunk_key TEXT NOT NULL,
+    note_id INTEGER NOT NULL REFERENCES notes(id),
+    imported_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS note_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     note_id INTEGER NOT NULL REFERENCES notes(id),
