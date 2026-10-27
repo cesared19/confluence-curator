@@ -5,11 +5,11 @@
 <div class="card">
 	{% if rows %}
 	<table class="list">
-		<thead><tr><th>Fecha (UTC)</th><th>Estado</th><th>Página</th><th>Cambio</th><th>Nota</th></tr></thead>
+		<thead><tr><th>Fecha</th><th>Estado</th><th>Página</th><th>Cambio</th><th>Nota</th></tr></thead>
 		<tbody>
 		{% for r in rows %}
 		<tr>
-			<td>{{ r.decided_at }}</td>
+			<td>{{ r.decided_at|when }}</td>
 			<td>{% if r.status == 'applied' %}<span class="badge ok">Publicada</span>{% else %}<span class="badge">Descartada</span>{% endif %}</td>
 			<td>{% if r.result_url %}<a href="{{ r.result_url }}" target="_blank">{{ r.page_title or r.new_title }}</a>{% else %}{{ r.page_title or r.new_title }}{% endif %}</td>
 			<td>{{ r.summary }}</td>

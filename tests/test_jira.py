@@ -217,3 +217,102 @@ def test_jira_not_configured():
     client = TestClient(create_app(curator, Settings()))
     page = client.get("/jira", params={"q": "SIM-1"})
     assert "Jira no está configurado" in page.text
+
+
+def test_watch_query_strips_order_and_filters_by_day():
+    from curator.service import watch_query
+
+    assert watch_query("project = SIM order by created DESC", "2026-10-27T03:00:00+00:00") == (
+        '(project = SIM) AND updated >= "2026-10-26" ORDER BY updated DESC'
+    )
+    assert watch_query("SIM-1, SIM-2", "2026-10-27T03:00:00+00:00").startswith("(key in (SIM-1, SIM-2)) AND")
+
+
+def test_watch_imports_only_new_changes():
+    from datetime import datetime, timedelta, timezone
+
+    curator = make_curator()
+    jira = curator.jira
+    curator.save_watch("project = SIM", 30, True)
+    assert curator.watch_settings()["enabled"] and curator.watch_settings()["since"]
+    assert jira.queries[-1].startswith("(project = SIM) AND updated >=")
+
+    # Los tickets de ejemplo son anteriores a la activación: no se importan solos.
+    assert curator.run_watch() == "sin tickets nuevos ni cambios."
+    assert curator.db.one("SELECT COUNT(*) AS n FROM notes")["n"] == 0
+
+    later = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+    jira.touch("SIM-102", later, ("Ana Pérez", "El volumen va de 0 a 10."))
+    assert curator.run_watch() == "1 tickets importados."
+    note = curator.recent_notes()[0]
+    assert note["source_ref"] == "SIM-102" and "El volumen va de 0 a 10." in note["text"]
+
+    assert curator.run_watch() == "sin tickets nuevos ni cambios."
+    even_later = (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+    jira.touch("SIM-102", even_later)
+    assert curator.run_watch() == "1 tickets importados."
+    settings = curator.watch_settings()
+    assert settings["last_run"] and settings["last_error"] == ""
+
+
+def test_watch_batch_limit(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    curator = make_curator()
+    curator.save_watch("project = SIM", 30, True)
+    later = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S.000+0000")
+    for key in ("SIM-101", "SIM-102", "SIM-103"):
+        curator.jira.touch(key, later)
+    monkeypatch.setattr(Curator, "WATCH_BATCH", 2)
+    assert curator.run_watch() == "2 tickets importados; 1 quedan para la próxima revisión."
+    assert curator.run_watch() == "1 tickets importados."
+
+
+def test_watch_due_and_validation():
+    from datetime import datetime, timedelta, timezone
+
+    curator = make_curator()
+    assert not curator.watch_due()
+    for jql, interval in [("", 30), ("project = SIM", 1)]:
+        try:
+            curator.save_watch(jql, interval, True)
+            raise AssertionError("debía fallar")
+        except Exception as error:
+            assert "JQL" in str(error) or "5 minutos" in str(error)
+    curator.save_watch("project = SIM", 30, True)
+    assert curator.watch_due()
+    curator.run_watch()
+    assert not curator.watch_due()
+    assert curator.watch_due(datetime.now(timezone.utc) + timedelta(minutes=31))
+    curator.save_watch("project = SIM", 30, False)
+    assert not curator.watch_due(datetime.now(timezone.utc) + timedelta(days=1))
+
+
+def test_watch_records_errors():
+    curator = make_curator()
+    curator.save_watch("project = SIM", 30, True)
+
+    def broken(query, limit):
+        from curator.jira import JiraError
+
+        raise JiraError("Jira respondió 401: credenciales inválidas", 401)
+
+    curator.jira.search = broken
+    try:
+        curator.run_watch()
+        raise AssertionError("debía fallar")
+    except Exception:
+        pass
+    assert "401" in curator.watch_settings()["last_error"]
+
+
+def test_watch_web_flow():
+    curator = make_curator()
+    client = TestClient(create_app(curator, Settings()))
+    saved = client.post("/jira/watch", data={"jql": "project = SIM", "interval": "15", "enabled": "1"})
+    assert "Revisión automática activada" in saved.text and "Revisar ahora" in saved.text
+    ran = client.post("/jira/watch/run")
+    assert "Revisión de Jira: sin tickets nuevos ni cambios." in ran.text
+    assert "Revisión automática de Jira activa (cada 15 min)" in client.get("/").text
+    bad = client.post("/jira/watch", data={"jql": "", "interval": "15", "enabled": "1"})
+    assert "Escribe la consulta JQL" in bad.text

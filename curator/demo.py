@@ -101,24 +101,35 @@ DEMO_ISSUES = {
 class FakeJira:
     """Jira simulado con tickets de ejemplo para el modo demo."""
 
+    def __init__(self):
+        self.issues = {key: list(value) for key, value in DEMO_ISSUES.items()}
+        self.queries: list[str] = []
+
+    def touch(self, key: str, updated: str, comment: tuple[str, str] | None = None) -> None:
+        """Simula un cambio en un ticket (para pruebas y capturas)."""
+        self.issues[key][3] = updated
+        if comment:
+            self.issues[key][5] = self.issues[key][5] + [(comment[0], updated, comment[1])]
+
     def issue_url(self, key: str) -> str:
         return f"https://demo.atlassian.net/browse/{key}"
 
     def search(self, query: str, limit: int = 50):
         from .jira import IssueSummary, to_jql
 
+        self.queries.append(query)
         jql = to_jql(query).upper()
-        keys = [k for k in DEMO_ISSUES if k in jql] or list(DEMO_ISSUES)
+        keys = [k for k in self.issues if k in jql] or list(self.issues)
         return [
-            IssueSummary(k, DEMO_ISSUES[k][0], DEMO_ISSUES[k][2], DEMO_ISSUES[k][1], DEMO_ISSUES[k][3]) for k in keys
+            IssueSummary(k, self.issues[k][0], self.issues[k][2], self.issues[k][1], self.issues[k][3]) for k in keys
         ][:limit]
 
     def issue(self, key: str, max_images: int, max_image_bytes: int):
         from .jira import Issue
 
-        if key not in DEMO_ISSUES:
+        if key not in self.issues:
             raise ConfluenceError(f"Jira respondió 404: no existe {key}", 404)
-        summary, kind, status, updated, description, comments = DEMO_ISSUES[key]
+        summary, kind, status, updated, description, comments = self.issues[key]
         lines = [f"{key}: {summary}", f"Tipo: {kind}", f"Estado: {status}", "", "Descripción:", description]
         if comments:
             lines += ["", "Comentarios:"] + [f"- {who} ({when[:10]}): {text}" for who, when, text in comments]

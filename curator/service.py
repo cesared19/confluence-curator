@@ -1,9 +1,11 @@
 import json
 import mimetypes
 import queue
+import re
 import threading
+import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from . import storage
 from .advisor import Advisor, AdvisorInput, Analysis, Candidate
@@ -48,6 +50,8 @@ class Curator:
         self.pending: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
         self.worker_lock = threading.Lock()
+        self.watch_lock = threading.Lock()
+        self.watcher: threading.Thread | None = None
 
     # Índice ---------------------------------------------------------------
 
@@ -344,6 +348,10 @@ class Curator:
         except ConfluenceError as error:
             raise CuratorError(str(error)) from error
         self.db.set_meta("last_jql", query.strip())
+        return self._annotate(issues)
+
+    def _annotate(self, issues) -> list[dict]:
+        """Marca cada ticket con su última importación y si cambió en Jira desde entonces."""
         results = []
         for issue in issues:
             last = self.db.one(
@@ -373,6 +381,98 @@ class Curator:
             self.enqueue(note_id)
         return note_ids, errors
 
+    # Revisión automática de Jira -------------------------------------------
+
+    WATCH_BATCH = 20
+
+    def watch_settings(self) -> dict:
+        get = self.db.get_meta
+        return {
+            "jql": get("watch_jql"),
+            "interval": int(get("watch_interval", "60")),
+            "enabled": get("watch_enabled") == "1",
+            "since": get("watch_since"),
+            "last_run": get("watch_last_run"),
+            "last_result": get("watch_last_result"),
+            "last_error": get("watch_last_error"),
+        }
+
+    def save_watch(self, jql: str, interval: int, enabled: bool) -> None:
+        jql = jql.strip()
+        if enabled and not jql:
+            raise CuratorError("Escribe la consulta JQL que se revisará.")
+        if interval < 5:
+            raise CuratorError("El intervalo mínimo es de 5 minutos.")
+        current = self.watch_settings()
+        if enabled:
+            try:
+                self._require_jira().search(watch_query(jql, now()), 1)
+            except ConfluenceError as error:
+                raise CuratorError(f"Jira rechazó la consulta: {error}") from error
+            if not current["enabled"] or jql != current["jql"] or not current["since"]:
+                # Solo se traen los tickets que cambien desde ahora; los anteriores se importan a mano.
+                self.db.set_meta("watch_since", now())
+        self.db.set_meta("watch_jql", jql)
+        self.db.set_meta("watch_interval", str(interval))
+        self.db.set_meta("watch_enabled", "1" if enabled else "")
+
+    def run_watch(self) -> str:
+        """Importa los tickets de la consulta guardada que son nuevos o cambiaron desde su última importación."""
+        if not self.watch_lock.acquire(blocking=False):
+            return "Ya hay una revisión en curso."
+        try:
+            settings = self.watch_settings()
+            if not settings["jql"]:
+                raise CuratorError("No hay una consulta guardada para revisar.")
+            since = datetime.fromisoformat(settings["since"] or now())
+            try:
+                issues = self._require_jira().search(watch_query(settings["jql"], since.isoformat()), 100)
+            except ConfluenceError as error:
+                raise CuratorError(str(error)) from error
+            due = [
+                r["issue"].key
+                for r in self._annotate(issues)
+                if r["changed"] or (not r["last"] and _jira_time(r["issue"].updated) >= since)
+            ]
+            note_ids, errors = self.import_issues(due[: self.WATCH_BATCH]) if due else ([], [])
+            pending = len(due) - self.WATCH_BATCH
+            parts = [f"{len(note_ids)} tickets importados" if note_ids else "sin tickets nuevos ni cambios"]
+            if pending > 0:
+                parts.append(f"{pending} quedan para la próxima revisión")
+            result = "; ".join(parts) + "."
+            self.db.set_meta("watch_last_result", result)
+            self.db.set_meta("watch_last_error", " · ".join(errors))
+            return result
+        except Exception as error:
+            self.db.set_meta("watch_last_error", str(error))
+            raise
+        finally:
+            self.db.set_meta("watch_last_run", now())
+            self.watch_lock.release()
+
+    def watch_due(self, moment: datetime | None = None) -> bool:
+        settings = self.watch_settings()
+        if not settings["enabled"] or self.jira is None:
+            return False
+        if not settings["last_run"]:
+            return True
+        elapsed = (moment or datetime.now(timezone.utc)) - datetime.fromisoformat(settings["last_run"])
+        return elapsed >= timedelta(minutes=settings["interval"])
+
+    def start_watcher(self, poll_seconds: int = 30) -> None:
+        def loop() -> None:
+            while True:
+                if self.watch_due():
+                    try:
+                        self.run_watch()
+                    except Exception:
+                        pass  # el error queda guardado en watch_last_error y se muestra en la interfaz
+                time.sleep(poll_seconds)
+
+        if self.watcher is None:
+            self.watcher = threading.Thread(target=loop, name="curator-jira-watch", daemon=True)
+            self.watcher.start()
+
     # Consultas para la interfaz --------------------------------------------
 
     def recent_notes(self, limit: int = 30):
@@ -401,6 +501,18 @@ class Curator:
             section = self.section(page.id, alt["section_index"]) if alt["section_index"] >= 0 else None
             result.append({**alt, "page_title": page.title, "heading": section.heading if section else ""})
         return result
+
+
+def watch_query(jql: str, since: str) -> str:
+    """Restringe la consulta guardada a lo actualizado desde el día anterior a "since", más reciente primero.
+
+    El filtro de JQL es por fecha (Jira la interpreta en la zona horaria de la cuenta); el corte exacto se hace después.
+    """
+    from .jira import to_jql
+
+    base = re.sub(r"\s+ORDER\s+BY\s+.*$", "", to_jql(jql), flags=re.IGNORECASE | re.DOTALL).strip()
+    day = (datetime.fromisoformat(since) - timedelta(days=1)).strftime("%Y-%m-%d")
+    return f'({base}) AND updated >= "{day}" ORDER BY updated DESC'
 
 
 def _jira_time(value: str) -> datetime:

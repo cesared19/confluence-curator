@@ -2,6 +2,7 @@ import base64
 import difflib
 import html
 import secrets
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -10,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import storage
+from . import __version__, storage
 from .advisor import AnthropicAdvisor, MockAdvisor, OllamaAdvisor
 from .config import Settings, load_settings
 from .db import Database, loads
@@ -62,7 +63,16 @@ def build_curator(settings: Settings) -> Curator:
         jira_max_images=settings.jira_max_images,
     )
     curator.resume_pending()
+    curator.start_watcher()
     return curator
+
+
+def when(value: str) -> str:
+    """Fecha ISO guardada en UTC, en formato corto."""
+    try:
+        return datetime.fromisoformat(value).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except (TypeError, ValueError):
+        return value or ""
 
 
 def diff_table(old: str, new: str) -> str:
@@ -91,7 +101,8 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
     app = FastAPI(title="Confluence Curator")
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.globals.update(ACTIONS=ACTIONS, curator=curator, settings=settings, loads=loads)
+    templates.env.globals.update(ACTIONS=ACTIONS, curator=curator, settings=settings, loads=loads, version=__version__)
+    templates.env.filters["when"] = when
 
     if settings.app_user and settings.app_password:
 
@@ -123,6 +134,7 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
             sources=SOURCES,
             pages=len(curator.pages()),
             last_sync=curator.db.get_meta("last_sync"),
+            watch=curator.watch_settings(),
             error=error,
             message=message,
         )
@@ -232,6 +244,7 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
             q=q or curator.db.get_meta("last_jql"),
             searched=bool(q.strip()),
             results=results,
+            watch=curator.watch_settings(),
             error=error,
             message=message,
         )
@@ -248,6 +261,22 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
             return back(f"/notes/{note_ids[0]}")
         message = f"{len(note_ids)} tickets importados; se están analizando de a uno." if note_ids else ""
         return back("/", error=" · ".join(errors), message=message)
+
+    @app.post("/jira/watch")
+    def jira_watch(jql: str = Form(""), interval: int = Form(60), enabled: str = Form("")):
+        try:
+            curator.save_watch(jql, interval, enabled == "1")
+        except CuratorError as error:
+            return back("/jira", error=str(error))
+        return back("/jira", message="Revisión automática activada." if enabled == "1" else "Revisión automática guardada (desactivada).")
+
+    @app.post("/jira/watch/run")
+    def jira_watch_run():
+        try:
+            result = curator.run_watch()
+        except CuratorError as error:
+            return back("/jira", error=f"No se pudo revisar Jira: {error}")
+        return back("/jira", message=f"Revisión de Jira: {result}")
 
     @app.get("/index", response_class=HTMLResponse)
     def index_page(request: Request, error: str = "", message: str = ""):

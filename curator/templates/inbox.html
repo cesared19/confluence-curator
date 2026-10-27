@@ -27,6 +27,9 @@
 </form>
 
 <h2>Notas recientes</h2>
+{% if watch.enabled %}
+<p class="muted">Revisión automática de Jira activa (cada {{ watch.interval }} min){% if watch.last_run %} · última {{ watch.last_run|when }}{% if watch.last_result %}: {{ watch.last_result }}{% else %}.{% endif %}{% else %}.{% endif %}{% if watch.last_error %} <a href="/jira#automatica">Último error</a>.{% endif %}</p>
+{% endif %}
 <div class="card">
 	{% if notes %}
 	<table class="list">
