@@ -1,0 +1,112 @@
+"""Servidor de demostración para generar las capturas del README.
+
+Usa el Confluence y el Jira simulados y un asesor con propuestas de ejemplo escritas a mano (no las genera
+un modelo), para que las capturas muestren cómo se ven las propuestas sin necesitar credenciales ni API key.
+
+    python scripts/demo_server.py --port 8770
+"""
+
+import argparse
+import sys
+from pathlib import Path
+
+import uvicorn
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from curator.advisor import Alternative, Analysis, Change, MockAdvisor  # noqa: E402
+from curator.config import Settings  # noqa: E402
+from curator.db import Database  # noqa: E402
+from curator.demo import FakeConfluence, FakeJira  # noqa: E402
+from curator.service import Curator  # noqa: E402
+from curator.web import create_app  # noqa: E402
+
+EXAMPLES = {
+    "SIM-101": dict(
+        heading="Alarmas",
+        old="La alarma de sobrepresión suena a partir de 8 bar.",
+        new="La alarma de sobrepresión suena a partir de 7,5 bar (manual del fabricante v2.3; aplica a todos los modelos 2026, SIM-101).",
+        summary="Umbral de la alarma de sobrepresión: de 8 a 7,5 bar",
+        rationale="La sección Alarmas del manual de referencia documenta este umbral; el ticket cita la versión 2.3 del manual y la confirmación del cliente.",
+        confidence=0.92,
+        conflicts=["La página dice 8 bar; el ticket SIM-101 (manual v2.3) dice 7,5 bar."],
+        alternatives=[("3", 1, "Si además cambia cómo suena en la simulación, va en «Alarmas en la simulación».")],
+    ),
+    "SIM-102": dict(
+        heading="Panel de control",
+        old="El panel tiene cuatro perillas: presión, temperatura, flujo y modo.",
+        new="El panel tiene cinco perillas: presión, temperatura, flujo, modo y volumen de la alarma (SIM-102).",
+        summary="El panel tiene una quinta perilla: volumen de la alarma",
+        rationale="Describe el hardware real del producto, que está documentado en «Panel de control» del manual de referencia.",
+        confidence=0.86,
+        conflicts=["La página dice cuatro perillas; el ticket SIM-102 dice cinco."],
+        alternatives=[("3", 0, "La interacción con la nueva perilla podría documentarse en «Interacciones».")],
+    ),
+    "SIM-103": dict(
+        heading="Rendimiento",
+        old="La simulación debe mantener 72 FPS en Quest 3.",
+        new="La simulación debe mantener 72 FPS estables en Quest 3; se toleran picos de 60 FPS durante la carga de escena. "
+        "QA lo valida con OpenVR Metrics en sesiones de 10 minutos (SIM-103).",
+        summary="Criterio de rendimiento: picos tolerados y método de validación",
+        rationale="Es un criterio de aceptación de la simulación, que vive en «Criterios de QA › Rendimiento».",
+        confidence=0.88,
+        conflicts=[],
+        alternatives=[],
+    ),
+    "botón B": dict(
+        heading="Alarmas en la simulación",
+        old="Las alarmas se reproducen con sonido espacial desde el panel.",
+        new="Las alarmas se reproducen con sonido espacial desde el panel. El usuario las silencia con el botón B del control "
+        "derecho; en el equipo real se silencian desde la perilla de modo (decisión de la reunión de diseño del 24/10).",
+        summary="Cómo se silencian las alarmas en la simulación",
+        rationale="Es una decisión del proyecto sobre la simulación, no del producto real; la nota aclara la diferencia con el equipo.",
+        confidence=0.81,
+        conflicts=[],
+        alternatives=[("2", 2, "La forma de silenciarlas en el equipo real podría ir en «Alarmas» del manual de referencia.")],
+    ),
+}
+
+
+class ExampleAdvisor:
+    """Propuestas de ejemplo para la demostración; cualquier otra nota usa el modo sin IA."""
+
+    name = "example"
+
+    def analyze(self, data):
+        for marker, example in EXAMPLES.items():
+            if marker not in data.note_text:
+                continue
+            candidate = next((c for c in data.candidates if c.heading == example["heading"]), None)
+            if candidate is None or example["old"] not in candidate.storage:
+                break
+            return Analysis(
+                note_summary=example["summary"],
+                changes=[
+                    Change(
+                        action="update_section",
+                        page_id=candidate.page_id,
+                        section_index=candidate.section_index,
+                        new_page_title="",
+                        content_storage=candidate.storage.replace(example["old"], example["new"]),
+                        summary=example["summary"],
+                        rationale=example["rationale"],
+                        confidence=example["confidence"],
+                        conflicts=example["conflicts"],
+                    )
+                ],
+                alternatives=[Alternative(page_id=p, section_index=i, reason=r) for p, i, r in example["alternatives"]],
+                no_change_reason="",
+            )
+        return MockAdvisor().analyze(data)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8770)
+    args = parser.parse_args()
+    curator = Curator(Database(":memory:"), ExampleAdvisor(), FakeConfluence(), "DEMO", jira=FakeJira())
+    uvicorn.run(create_app(curator, Settings()), host="127.0.0.1", port=args.port, log_level="warning")
+
+
+if __name__ == "__main__":
+    main()

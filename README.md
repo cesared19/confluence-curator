@@ -1,5 +1,7 @@
 # Confluence Curator
 
+> **Beta 0.0.1.** Probada con un Confluence y un Jira simulados; todavía no contra un sitio real de Atlassian. Haz las primeras pruebas en páginas sin importancia.
+
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
 Le das un texto o una imagen, o la traes directamente de tickets de Jira, y la herramienta:
@@ -10,6 +12,31 @@ Le das un texto o una imagen, o la traes directamente de tickets de Jira, y la h
 4. **Solo publica cuando lo apruebas.** Antes de publicar vuelve a leer la página en vivo; si alguien cambió esa sección mientras tanto, se detiene y te pide volver a analizar. Las imágenes se suben como adjuntos de la página.
 
 Cada publicación queda en el historial de versiones de Confluence, con el resumen del cambio y el número de nota, y en la página *Historial* de la herramienta.
+
+## Capturas
+
+Tomadas en el modo demo, con Confluence y Jira simulados y propuestas de ejemplo escritas a mano (no generadas por un modelo).
+
+**Propuesta para un ticket de Jira:** dónde va, por qué, la contradicción con lo publicado, las diferencias y la vista previa.
+
+![Propuesta de cambio con diferencias y vista previa](docs/screenshots/propuesta.png)
+
+**Bandeja:** notas pegadas a mano o traídas de Jira, con su estado.
+
+![Bandeja con notas recientes](docs/screenshots/bandeja.png)
+
+**Jira:** importación a mano y revisión automática con una consulta guardada.
+
+![Importación desde Jira y revisión automática](docs/screenshots/jira.png)
+
+<details>
+<summary>Modo oscuro y móvil</summary>
+
+![Propuesta en modo oscuro](docs/screenshots/propuesta-oscuro.png)
+
+<img src="docs/screenshots/movil.png" alt="Propuesta en un teléfono" width="320">
+
+</details>
 
 ## Cómo decide dónde va la información
 
@@ -75,6 +102,7 @@ La herramienta solo lee Jira: no cambia tickets ni agrega comentarios.
 
 - **Bandeja:** pega el texto (un hilo de chat, la descripción y los comentarios de un ticket, un fragmento del manual), indica la fuente y adjunta imágenes si hacen falta. Una nota puede generar varias propuestas si toca varios temas.
 - **Jira:** busca con JQL (por ejemplo `project = SIM AND updated >= -14d ORDER BY updated DESC`) o escribiendo claves (`SIM-101, SIM-102`). Elige los tickets y cada uno se convierte en una nota con sus datos (tipo, estado, etiquetas, versiones, responsables), la descripción, todos los comentarios, el enlace y las imágenes adjuntas (hasta 10 MB cada una). Las notas se analizan en segundo plano, de a una; la bandeja muestra *Analizando…* y se actualiza sola. La lista indica qué tickets ya se importaron y cuáles cambiaron desde entonces, que quedan marcados para volver a importarlos.
+- **Revisión automática de Jira:** en la página Jira guarda una consulta JQL y cada cuántos minutos revisarla (mínimo 5). La herramienta importa sola los tickets nuevos o que cambiaron, hasta 20 por revisión; los demás quedan para la siguiente. Al activarla solo trae lo que cambie de ahí en adelante, para no llenar la bandeja con tickets viejos; esos se importan a mano. *Revisar ahora* la ejecuta en el momento. La bandeja muestra cuándo fue la última revisión y si falló. La revisión corre mientras la aplicación esté encendida.
 - **Revisar:** en cada propuesta revisa las diferencias y la vista previa. *Editar contenido* permite corregir el XHTML antes de publicar; `[[IMAGEN:n]]` coloca la imagen n de la nota.
 - **¿No es el lugar correcto?** Elige una alternativa sugerida, una página destino o escribe una indicación ("es una decisión del proyecto, no del producto") y vuelve a analizar.
 - **Buscar:** consulta rápida de qué dice hoy la documentación sobre un tema.
@@ -89,6 +117,13 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
+Para regenerar las capturas de `docs/screenshots` (requiere Node y Playwright):
+
+```bash
+python scripts/demo_server.py --port 8770 &
+node scripts/screenshots.mjs http://127.0.0.1:8770
+```
+
 Estructura:
 
 - `curator/confluence.py`: cliente de Confluence Cloud (API v2; v1 para adjuntos).
@@ -99,6 +134,7 @@ Estructura:
 - `curator/service.py`: flujo de notas, propuestas y publicación, importación de Jira y cola de análisis en segundo plano.
 - `curator/web.py` y `curator/templates/`: interfaz web (FastAPI + Jinja).
 - `curator/demo.py`: Confluence y Jira simulados.
+- `scripts/`: servidor de demostración con propuestas de ejemplo y script de capturas.
 
 ## Limitaciones conocidas
 
@@ -111,6 +147,5 @@ Estructura:
 ## Próximos pasos posibles
 
 - Importar desde el chat que usa el equipo.
-- Revisar Jira automáticamente cada cierto tiempo con una consulta guardada.
 - Cargar PDFs de manuales completos y repartirlos en varias propuestas.
 - Revisión periódica que señale páginas desactualizadas o contradictorias entre sí.
