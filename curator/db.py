@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,7 +22,14 @@ CREATE TABLE IF NOT EXISTS notes (
     summary TEXT NOT NULL DEFAULT '',
     no_change_reason TEXT NOT NULL DEFAULT '',
     alternatives TEXT NOT NULL DEFAULT '[]',
-    error TEXT NOT NULL DEFAULT ''
+    error TEXT NOT NULL DEFAULT '',
+    analyzing INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS jira_imports (
+    issue_key TEXT NOT NULL,
+    issue_updated TEXT NOT NULL,
+    note_id INTEGER NOT NULL REFERENCES notes(id),
+    imported_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS note_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,17 +71,24 @@ class Database:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        # La conexión se comparte entre las peticiones y el análisis en segundo plano.
+        self.lock = threading.RLock()
         self.conn.executescript(SCHEMA)
+        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(notes)")}
+        if "analyzing" not in columns:
+            self.conn.execute("ALTER TABLE notes ADD COLUMN analyzing INTEGER NOT NULL DEFAULT 0")
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        with self.conn:
+        with self.lock, self.conn:
             return self.conn.execute(sql, params)
 
     def one(self, sql: str, params: tuple = ()) -> sqlite3.Row | None:
-        return self.conn.execute(sql, params).fetchone()
+        with self.lock:
+            return self.conn.execute(sql, params).fetchone()
 
     def all(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
-        return self.conn.execute(sql, params).fetchall()
+        with self.lock:
+            return self.conn.execute(sql, params).fetchall()
 
     def get_meta(self, key: str, default: str = "") -> str:
         row = self.one("SELECT value FROM meta WHERE key = ?", (key,))
@@ -83,7 +98,7 @@ class Database:
         self.execute("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
 
     def replace_pages(self, pages) -> None:
-        with self.conn:
+        with self.lock, self.conn:
             self.conn.execute("DELETE FROM pages")
             self.conn.executemany(
                 "INSERT INTO pages(id, title, parent_id, version, body) VALUES (?, ?, ?, ?, ?)",

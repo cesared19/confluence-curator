@@ -67,3 +67,59 @@ class FakeConfluence:
 
     def upload_attachment(self, page_id: str, filename: str, content: bytes, mime: str, comment: str) -> None:
         self.attachments.setdefault(page_id, {})[filename] = content
+
+
+DEMO_ISSUES = {
+    "SIM-101": (
+        "Actualizar umbral de alarma de sobrepresión",
+        "Bug",
+        "En curso",
+        "2026-10-20T10:00:00.000-0500",
+        "Según el manual del fabricante v2.3, la alarma de sobrepresión ahora suena a partir de 7,5 bar (antes 8 bar). "
+        "La simulación debe reflejar el nuevo umbral.",
+        [("Ana Pérez", "2026-10-21T09:00:00.000-0500", "Confirmado con el cliente: aplica a todos los modelos 2026.")],
+    ),
+    "SIM-102": (
+        "Agregar perilla de volumen al panel",
+        "Historia",
+        "Por hacer",
+        "2026-10-22T16:30:00.000-0500",
+        "El panel real tiene una quinta perilla de volumen para la alarma. Hay que modelarla e incluirla en la interacción.",
+        [],
+    ),
+    "SIM-103": (
+        "Revisar rendimiento en Quest 3",
+        "Tarea",
+        "Hecho",
+        "2026-10-18T12:00:00.000-0500",
+        "Se acordó bajar el objetivo a 72 FPS estables con picos tolerados de 60 FPS durante la carga de escena.",
+        [("Luis Gómez", "2026-10-18T12:00:00.000-0500", "QA valida con OpenVR Metrics durante 10 minutos de sesión.")],
+    ),
+}
+
+
+class FakeJira:
+    """Jira simulado con tickets de ejemplo para el modo demo."""
+
+    def issue_url(self, key: str) -> str:
+        return f"https://demo.atlassian.net/browse/{key}"
+
+    def search(self, query: str, limit: int = 50):
+        from .jira import IssueSummary, to_jql
+
+        jql = to_jql(query).upper()
+        keys = [k for k in DEMO_ISSUES if k in jql] or list(DEMO_ISSUES)
+        return [
+            IssueSummary(k, DEMO_ISSUES[k][0], DEMO_ISSUES[k][2], DEMO_ISSUES[k][1], DEMO_ISSUES[k][3]) for k in keys
+        ][:limit]
+
+    def issue(self, key: str, max_images: int, max_image_bytes: int):
+        from .jira import Issue
+
+        if key not in DEMO_ISSUES:
+            raise ConfluenceError(f"Jira respondió 404: no existe {key}", 404)
+        summary, kind, status, updated, description, comments = DEMO_ISSUES[key]
+        lines = [f"{key}: {summary}", f"Tipo: {kind}", f"Estado: {status}", "", "Descripción:", description]
+        if comments:
+            lines += ["", "Comentarios:"] + [f"- {who} ({when[:10]}): {text}" for who, when, text in comments]
+        return Issue(key, self.issue_url(key), updated, "\n".join(lines))

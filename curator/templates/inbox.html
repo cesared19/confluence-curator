@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block head %}{% if notes|selectattr('analyzing')|list %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block content %}
 <h1>Nueva información</h1>
 {% if pages == 0 %}
@@ -37,7 +38,8 @@
 			<td><a href="/notes/{{ n.id }}">{{ (n.summary or n.text)[:110] or '(solo imágenes)' }}</a></td>
 			<td>{{ n.source_type }}{% if n.source_ref %} · {{ n.source_ref }}{% endif %}</td>
 			<td>
-				{% if n.error %}<span class="badge danger">Error</span>
+				{% if n.analyzing %}<span class="badge">Analizando…</span>
+				{% elif n.error %}<span class="badge danger">Error</span>
 				{% elif n.pending %}<span class="badge warn">{{ n.pending }} por revisar</span>
 				{% elif n.applied %}<span class="badge ok">Publicada</span>
 				{% else %}<span class="badge">Sin cambios</span>{% endif %}

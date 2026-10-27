@@ -5,6 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{% block title %}Confluence Curator{% endblock %}</title>
 	<link rel="stylesheet" href="/static/style.css">
+	{% block head %}{% endblock %}
 </head>
 <body>
 <header>
@@ -16,6 +17,7 @@
 		</span>
 		<nav>
 			<a href="/">Bandeja</a>
+			<a href="/jira">Jira</a>
 			<a href="/search">Buscar</a>
 			<a href="/history">Historial</a>
 			<a href="/index">Índice</a>

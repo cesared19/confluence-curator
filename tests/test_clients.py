@@ -99,7 +99,7 @@ def test_anthropic_advisor_request_shape():
 
 
 def test_web_flow():
-    curator = Curator(Database(":memory:"), MockAdvisor(), FakeConfluence(), "DEMO")
+    curator = Curator(Database(":memory:"), MockAdvisor(), FakeConfluence(), "DEMO", background=False)
     client = TestClient(create_app(curator, Settings()))
     assert "índice está vacío" in client.get("/").text
     client.post("/sync")

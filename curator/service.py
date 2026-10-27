@@ -1,6 +1,9 @@
 import json
 import mimetypes
+import queue
+import threading
 from dataclasses import dataclass
+from datetime import datetime
 
 from . import storage
 from .advisor import Advisor, AdvisorInput, Analysis, Candidate
@@ -23,12 +26,28 @@ class IndexedPage:
 
 
 class Curator:
-    def __init__(self, db: Database, advisor: Advisor, confluence=None, space_key: str = "", candidates: int = 10):
+    def __init__(
+        self,
+        db: Database,
+        advisor: Advisor,
+        confluence=None,
+        space_key: str = "",
+        candidates: int = 10,
+        jira=None,
+        jira_max_images: int = 5,
+        background: bool = True,
+    ):
         self.db = db
         self.advisor = advisor
         self.confluence = confluence
         self.space_key = space_key
         self.candidate_limit = candidates
+        self.jira = jira
+        self.jira_max_images = jira_max_images
+        self.background = background
+        self.pending: queue.Queue = queue.Queue()
+        self.worker: threading.Thread | None = None
+        self.worker_lock = threading.Lock()
 
     # Índice ---------------------------------------------------------------
 
@@ -153,6 +172,42 @@ class Curator:
             return
         self._store(note_id, analysis)
 
+    def enqueue(self, note_id: int, **options) -> None:
+        """Analiza la nota en segundo plano, de a una por vez, para no bloquear la interfaz."""
+        self.db.execute("UPDATE notes SET analyzing = 1, error = '' WHERE id = ?", (note_id,))
+        if not self.background:
+            self._run(note_id, options)
+            return
+        self.pending.put((note_id, options))
+        with self.worker_lock:
+            if self.worker is None or not self.worker.is_alive():
+                self.worker = threading.Thread(target=self._work, name="curator-analysis", daemon=True)
+                self.worker.start()
+
+    def resume_pending(self) -> None:
+        """Retoma los análisis que quedaron a medias si la aplicación se reinició."""
+        for row in self.db.all("SELECT id FROM notes WHERE analyzing = 1 ORDER BY id"):
+            self.enqueue(row["id"])
+
+    def wait_idle(self) -> None:
+        self.pending.join()
+
+    def _work(self) -> None:
+        while True:
+            note_id, options = self.pending.get()
+            try:
+                self._run(note_id, options)
+            finally:
+                self.pending.task_done()
+
+    def _run(self, note_id: int, options: dict) -> None:
+        try:
+            self.analyze(note_id, **options)
+        except Exception as error:
+            self.db.execute("UPDATE notes SET error = ? WHERE id = ?", (f"No se pudo analizar: {error}", note_id))
+        finally:
+            self.db.execute("UPDATE notes SET analyzing = 0 WHERE id = ?", (note_id,))
+
     def _store(self, note_id: int, analysis: Analysis) -> None:
         self.db.execute(
             "UPDATE notes SET summary = ?, no_change_reason = ?, alternatives = ?, error = '' WHERE id = ?",
@@ -274,13 +329,58 @@ class Curator:
         for n in used:
             self.confluence.upload_attachment(page_id, filename(n), images[n]["data"], images[n]["mime"], message)
 
+    # Jira -------------------------------------------------------------------
+
+    def _require_jira(self):
+        if self.jira is None:
+            raise CuratorError("Jira no está configurado (revisa las variables JIRA_* o CONFLUENCE_* en .env).")
+        return self.jira
+
+    def jira_search(self, query: str, limit: int = 50) -> list[dict]:
+        if not query.strip():
+            raise CuratorError("Escribe una consulta JQL o claves de tickets.")
+        try:
+            issues = self._require_jira().search(query, limit)
+        except ConfluenceError as error:
+            raise CuratorError(str(error)) from error
+        self.db.set_meta("last_jql", query.strip())
+        results = []
+        for issue in issues:
+            last = self.db.one(
+                "SELECT * FROM jira_imports WHERE issue_key = ? ORDER BY imported_at DESC, rowid DESC LIMIT 1", (issue.key,)
+            )
+            changed = bool(last) and _jira_time(issue.updated) > _jira_time(last["issue_updated"])
+            results.append({"issue": issue, "last": last, "changed": changed})
+        return results
+
+    def import_issues(self, keys: list[str]) -> tuple[list[int], list[str]]:
+        """Crea una nota por ticket (descripción, comentarios e imágenes) y la manda a analizar."""
+        jira = self._require_jira()
+        note_ids, errors = [], []
+        for key in dict.fromkeys(keys):
+            try:
+                issue = jira.issue(key, self.jira_max_images, 10 * 1024 * 1024)
+            except ConfluenceError as error:
+                errors.append(f"{key}: {error}")
+                continue
+            note_id = self.create_note(f"{issue.text}\n\nEnlace: {issue.url}", "Jira", issue.key, issue.images)
+            self.db.execute(
+                "INSERT INTO jira_imports(issue_key, issue_updated, note_id, imported_at) VALUES (?, ?, ?, ?)",
+                (issue.key, issue.updated, note_id, now()),
+            )
+            note_ids.append(note_id)
+        for note_id in note_ids:
+            self.enqueue(note_id)
+        return note_ids, errors
+
     # Consultas para la interfaz --------------------------------------------
 
     def recent_notes(self, limit: int = 30):
         return self.db.all(
             "SELECT n.*, "
             "(SELECT COUNT(*) FROM proposals p WHERE p.note_id = n.id AND p.status = 'pending') AS pending, "
-            "(SELECT COUNT(*) FROM proposals p WHERE p.note_id = n.id AND p.status = 'applied') AS applied "
+            "(SELECT COUNT(*) FROM proposals p WHERE p.note_id = n.id AND p.status = 'applied') AS applied, "
+            "(SELECT COUNT(*) FROM proposals p WHERE p.note_id = n.id) AS total "
             "FROM notes n ORDER BY n.id DESC LIMIT ?",
             (limit,),
         )
@@ -301,3 +401,11 @@ class Curator:
             section = self.section(page.id, alt["section_index"]) if alt["section_index"] >= 0 else None
             result.append({**alt, "page_title": page.title, "heading": section.heading if section else ""})
         return result
+
+
+def _jira_time(value: str) -> datetime:
+    """Jira usa fechas como 2026-10-20T10:00:00.000-0500; se comparan como instantes, no como texto."""
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%f%z")
+    except ValueError:
+        return datetime.fromisoformat(value)

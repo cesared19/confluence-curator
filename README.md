@@ -2,7 +2,7 @@
 
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
-Le das un texto o una imagen y la herramienta:
+Le das un texto o una imagen, o la traes directamente de tickets de Jira, y la herramienta:
 
 1. Busca en el espacio de Confluence las secciones relacionadas.
 2. Propone dónde va: actualizar una sección, agregar al final de una página o crear una página nueva. Muestra el porqué, una confianza y las contradicciones con lo ya publicado (por ejemplo, "antes 8 bar, ahora 7,5 bar").
@@ -40,6 +40,8 @@ Para probar sin credenciales, usa un Confluence simulado con páginas de ejemplo
 CURATOR_DEMO=1 python -m curator
 ```
 
+El modo demo incluye también tres tickets de Jira de ejemplo.
+
 Con Docker: `docker compose up -d --build` (usa `.env` y publica la interfaz solo en `127.0.0.1:8000`).
 
 ### IA local con Ollama
@@ -63,9 +65,16 @@ Sobre el modelo:
 
 Si la herramienta corre en un servidor compartido, define `CURATOR_USER` y `CURATOR_PASSWORD` para pedir usuario y contraseña.
 
+### Jira
+
+Si Jira está en el mismo sitio de Atlassian que Confluence, no hace falta configurar nada: usa la misma URL, el mismo correo y el mismo token. La cuenta necesita permiso para ver los proyectos de Jira que quieras importar. Si Jira está en otro sitio o quieres otra cuenta, define `JIRA_BASE_URL`, `JIRA_EMAIL` y `JIRA_API_TOKEN`. `JIRA_MAX_IMAGES` (5 por defecto) limita cuántas imágenes adjuntas se traen por ticket.
+
+La herramienta solo lee Jira: no cambia tickets ni agrega comentarios.
+
 ## Uso diario
 
 - **Bandeja:** pega el texto (un hilo de chat, la descripción y los comentarios de un ticket, un fragmento del manual), indica la fuente y adjunta imágenes si hacen falta. Una nota puede generar varias propuestas si toca varios temas.
+- **Jira:** busca con JQL (por ejemplo `project = SIM AND updated >= -14d ORDER BY updated DESC`) o escribiendo claves (`SIM-101, SIM-102`). Elige los tickets y cada uno se convierte en una nota con sus datos (tipo, estado, etiquetas, versiones, responsables), la descripción, todos los comentarios, el enlace y las imágenes adjuntas (hasta 10 MB cada una). Las notas se analizan en segundo plano, de a una; la bandeja muestra *Analizando…* y se actualiza sola. La lista indica qué tickets ya se importaron y cuáles cambiaron desde entonces, que quedan marcados para volver a importarlos.
 - **Revisar:** en cada propuesta revisa las diferencias y la vista previa. *Editar contenido* permite corregir el XHTML antes de publicar; `[[IMAGEN:n]]` coloca la imagen n de la nota.
 - **¿No es el lugar correcto?** Elige una alternativa sugerida, una página destino o escribe una indicación ("es una decisión del proyecto, no del producto") y vuelve a analizar.
 - **Buscar:** consulta rápida de qué dice hoy la documentación sobre un tema.
@@ -83,21 +92,25 @@ python -m pytest
 Estructura:
 
 - `curator/confluence.py`: cliente de Confluence Cloud (API v2; v1 para adjuntos).
+- `curator/jira.py`: cliente de Jira Cloud (API v3) y conversión de descripciones y comentarios (formato ADF) a texto.
 - `curator/storage.py`: divide las páginas en secciones por encabezados sobre el texto original, de modo que al reemplazar una sección el resto de la página no cambia. También valida el XHTML.
 - `curator/search.py`: búsqueda BM25 sin acentos (español e inglés).
 - `curator/advisor.py`: asesores (Claude y Ollama con salida estructurada, y modo sin IA).
-- `curator/service.py`: flujo de notas, propuestas y publicación.
+- `curator/service.py`: flujo de notas, propuestas y publicación, importación de Jira y cola de análisis en segundo plano.
 - `curator/web.py` y `curator/templates/`: interfaz web (FastAPI + Jinja).
-- `curator/demo.py`: Confluence simulado.
+- `curator/demo.py`: Confluence y Jira simulados.
 
 ## Limitaciones conocidas
 
 - Trabaja con un solo espacio a la vez.
 - Las secciones se definen por encabezados (`h1` a `h6`). En páginas sin encabezados, la página entera es una sola sección.
-- No lee directamente Slack, Teams ni Jira: la información se pega a mano. Es el siguiente paso natural (ver abajo).
+- No lee directamente Slack ni Teams: los mensajes del chat se pegan a mano.
+- Volver a importar un ticket trae el ticket completo otra vez, no solo lo nuevo. Con la IA activada no suele duplicar nada, porque compara con lo ya publicado, pero el análisis tarda más.
+- De Jira solo trae imágenes adjuntas; los demás archivos (PDF, videos, logs) quedan fuera.
 
 ## Próximos pasos posibles
 
-- Importar directamente desde Jira (por JQL) y desde el chat que usa el equipo.
+- Importar desde el chat que usa el equipo.
+- Revisar Jira automáticamente cada cierto tiempo con una consulta guardada.
 - Cargar PDFs de manuales completos y repartirlos en varias propuestas.
 - Revisión periódica que señale páginas desactualizadas o contradictorias entre sí.

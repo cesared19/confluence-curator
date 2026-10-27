@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Nota {{ note.id }} · Confluence Curator{% endblock %}
+{% block head %}{% if note.analyzing %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
 {% block content %}
 <h1>Nota {{ note.id }}{% if note.summary %}: {{ note.summary }}{% endif %}</h1>
 
@@ -13,12 +14,15 @@
 	{% endif %}
 </details>
 
+{% if note.analyzing %}
+<div class="card" role="status"><h2>Analizando…</h2><p class="muted">Buscando dónde va esta información y redactando los cambios. La página se actualiza sola; si hay otras notas en cola, se analizan de a una.</p></div>
+{% endif %}
 {% if note.error %}<div class="flash error">{{ note.error }}</div>{% endif %}
-{% if note.no_change_reason and not proposals %}
+{% if note.no_change_reason and not proposals and not note.analyzing %}
 <div class="card"><h2>No hace falta cambiar nada</h2><p>{{ note.no_change_reason }}</p></div>
 {% endif %}
 
-{% for p in proposals %}
+{% for p in proposals if not note.analyzing %}
 {% set row = p.row %}
 <section class="card" id="propuesta-{{ row.id }}">
 	<h2>

@@ -30,10 +30,11 @@ IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 def build_curator(settings: Settings) -> Curator:
     import os
 
+    jira = None
     if os.environ.get("CURATOR_DEMO") == "1":
-        from .demo import FakeConfluence
+        from .demo import FakeConfluence, FakeJira
 
-        confluence, space_key = FakeConfluence(), "DEMO"
+        confluence, space_key, jira = FakeConfluence(), "DEMO", FakeJira()
     elif settings.confluence_configured:
         from .confluence import ConfluenceClient
 
@@ -41,13 +42,27 @@ def build_curator(settings: Settings) -> Curator:
         space_key = settings.confluence_space_key
     else:
         confluence, space_key = None, ""
+    if jira is None and settings.jira_configured:
+        from .jira import JiraClient
+
+        jira = JiraClient(settings.jira_base_url, settings.jira_email, settings.jira_api_token)
     if settings.advisor == "anthropic":
         advisor = AnthropicAdvisor(settings.anthropic_model, settings.anthropic_effort)
     elif settings.advisor == "ollama":
         advisor = OllamaAdvisor(settings.ollama_url, settings.ollama_model, settings.ollama_context)
     else:
         advisor = MockAdvisor()
-    return Curator(Database(settings.database_path), advisor, confluence, space_key, settings.candidates)
+    curator = Curator(
+        Database(settings.database_path),
+        advisor,
+        confluence,
+        space_key,
+        settings.candidates,
+        jira=jira,
+        jira_max_images=settings.jira_max_images,
+    )
+    curator.resume_pending()
+    return curator
 
 
 def diff_table(old: str, new: str) -> str:
@@ -134,7 +149,7 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
             note_id = curator.create_note(text, source_type, source_ref, files)
         except CuratorError as error:
             return back("/", error=str(error))
-        curator.analyze(note_id)
+        curator.enqueue(note_id)
         return back(f"/notes/{note_id}")
 
     @app.get("/notes/{note_id}", response_class=HTMLResponse)
@@ -179,11 +194,10 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
     @app.post("/notes/{note_id}/reanalyze")
     def reanalyze(note_id: int, hint: str = Form(""), target: str = Form("")):
         page_id, _, section = target.partition("#")
-        try:
-            curator.analyze(note_id, hint, page_id, int(section) if section else -1)
-        except CuratorError as error:
-            return back(f"/notes/{note_id}", error=str(error))
-        return back(f"/notes/{note_id}", message="Nota analizada de nuevo.")
+        if page_id and curator.page(page_id) is None:
+            return back(f"/notes/{note_id}", error="La página indicada no está en el índice.")
+        curator.enqueue(note_id, hint=hint, target_page=page_id, target_section=int(section) if section else -1)
+        return back(f"/notes/{note_id}")
 
     @app.post("/proposals/{proposal_id}/apply")
     def apply(proposal_id: int, content: str = Form(...), new_title: str = Form("")):
@@ -203,6 +217,37 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
             return back("/", error=str(error))
         curator.reject(proposal_id)
         return back(f"/notes/{note_id}", message="Propuesta descartada.")
+
+    @app.get("/jira", response_class=HTMLResponse)
+    def jira_page(request: Request, q: str = "", error: str = "", message: str = ""):
+        results = []
+        if q.strip():
+            try:
+                results = curator.jira_search(q)
+            except CuratorError as failure:
+                error = str(failure)
+        return render(
+            request,
+            "jira.html",
+            q=q or curator.db.get_meta("last_jql"),
+            searched=bool(q.strip()),
+            results=results,
+            error=error,
+            message=message,
+        )
+
+    @app.post("/jira/import")
+    def jira_import(keys: list[str] = Form(default_factory=list)):
+        if not keys:
+            return back("/jira", error="Selecciona al menos un ticket.")
+        try:
+            note_ids, errors = curator.import_issues(keys)
+        except CuratorError as error:
+            return back("/jira", error=str(error))
+        if len(note_ids) == 1 and not errors:
+            return back(f"/notes/{note_ids[0]}")
+        message = f"{len(note_ids)} tickets importados; se están analizando de a uno." if note_ids else ""
+        return back("/", error=" · ".join(errors), message=message)
 
     @app.get("/index", response_class=HTMLResponse)
     def index_page(request: Request, error: str = "", message: str = ""):

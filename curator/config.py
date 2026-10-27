@@ -31,12 +31,20 @@ class Settings:
     candidates: int = 10
     app_user: str = ""
     app_password: str = ""
+    jira_base_url: str = ""
+    jira_email: str = ""
+    jira_api_token: str = ""
+    jira_max_images: int = 5
 
     @property
     def confluence_configured(self) -> bool:
         return all(
             [self.confluence_base_url, self.confluence_email, self.confluence_api_token, self.confluence_space_key]
         )
+
+    @property
+    def jira_configured(self) -> bool:
+        return all([self.jira_base_url, self.jira_email, self.jira_api_token])
 
 
 def load_settings() -> Settings:
@@ -45,8 +53,9 @@ def load_settings() -> Settings:
     if not advisor:
         has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
         advisor = "anthropic" if has_key else "mock"
+    confluence_base_url = os.environ.get("CONFLUENCE_BASE_URL", "").rstrip("/").removesuffix("/wiki")
     return Settings(
-        confluence_base_url=os.environ.get("CONFLUENCE_BASE_URL", "").rstrip("/").removesuffix("/wiki"),
+        confluence_base_url=confluence_base_url,
         confluence_email=os.environ.get("CONFLUENCE_EMAIL", ""),
         confluence_api_token=os.environ.get("CONFLUENCE_API_TOKEN", ""),
         confluence_space_key=os.environ.get("CONFLUENCE_SPACE_KEY", ""),
@@ -60,4 +69,9 @@ def load_settings() -> Settings:
         candidates=int(os.environ.get("CURATOR_CANDIDATES", "10")),
         app_user=os.environ.get("CURATOR_USER", ""),
         app_password=os.environ.get("CURATOR_PASSWORD", ""),
+        # Jira Cloud suele estar en el mismo sitio y aceptar la misma cuenta que Confluence.
+        jira_base_url=os.environ.get("JIRA_BASE_URL", confluence_base_url).rstrip("/"),
+        jira_email=os.environ.get("JIRA_EMAIL", os.environ.get("CONFLUENCE_EMAIL", "")),
+        jira_api_token=os.environ.get("JIRA_API_TOKEN", os.environ.get("CONFLUENCE_API_TOKEN", "")),
+        jira_max_images=int(os.environ.get("JIRA_MAX_IMAGES", "5")),
     )

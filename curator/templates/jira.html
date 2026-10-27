@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Jira · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Importar desde Jira</h1>
+{% if curator.jira is none %}
+<div class="flash error">Jira no está configurado. Por defecto usa el sitio y la cuenta de Confluence; revisa las variables JIRA_* o CONFLUENCE_* en .env.</div>
+{% endif %}
+<form class="card" method="get" action="/jira">
+	<label for="q">Consulta JQL o claves de tickets</label>
+	<input id="q" name="q" type="text" value="{{ q }}" placeholder="project = SIM AND updated >= -14d ORDER BY updated DESC   ·   o: SIM-101, SIM-102">
+	<p class="muted">Cada ticket elegido se convierte en una nota con su descripción, sus comentarios y hasta {{ settings.jira_max_images }} imágenes adjuntas, y se analiza igual que una nota pegada a mano.</p>
+	<div class="actions"><button class="primary" type="submit">Buscar en Jira</button></div>
+</form>
+
+{% if searched %}
+<form class="card" method="post" action="/jira/import" data-busy="Importando…">
+	{% if results %}
+	<table class="list">
+		<thead><tr><th><span class="visually-hidden">Elegir</span></th><th>Ticket</th><th>Resumen</th><th>Estado</th><th>Actualizado</th><th>En Curator</th></tr></thead>
+		<tbody>
+		{% for r in results %}
+		{% set i = r.issue %}
+		<tr>
+			<td><input type="checkbox" name="keys" value="{{ i.key }}" id="key-{{ i.key }}" aria-label="Importar {{ i.key }}" {% if not r.last or r.changed %}checked{% endif %}></td>
+			<td><label for="key-{{ i.key }}" class="inline">{{ i.key }}</label></td>
+			<td>{{ i.summary }} <span class="muted">· {{ i.issue_type }}</span></td>
+			<td>{{ i.status }}</td>
+			<td>{{ i.updated[:10] }}</td>
+			<td>
+				{% if not r.last %}<span class="badge">Nuevo</span>
+				{% elif r.changed %}<span class="badge warn">Cambió desde la nota <a href="/notes/{{ r.last.note_id }}">#{{ r.last.note_id }}</a></span>
+				{% else %}<span class="badge ok">Importado: <a href="/notes/{{ r.last.note_id }}">nota #{{ r.last.note_id }}</a></span>{% endif %}
+			</td>
+		</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	<p class="muted">Quedan marcados los tickets nuevos y los que cambiaron desde que se importaron. Volver a importar uno crea una nota nueva con su contenido actual.</p>
+	<div class="actions"><button class="primary" type="submit">Importar y analizar los seleccionados</button></div>
+	{% else %}
+	<p class="muted">Ningún ticket coincide con la consulta.</p>
+	{% endif %}
+</form>
+{% endif %}
+{% endblock %}
