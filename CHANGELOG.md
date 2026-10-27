@@ -1,10 +1,10 @@
 # Cambios
 
-## Sin publicar
+## 0.0.2-beta (2026-10-27)
 
-- Revisión de la documentación: detecta páginas que mencionan tickets de Jira actualizados después, contradicciones entre secciones de páginas distintas (con IA) y páginas sin cambios hace tiempo. Cada hallazgo se corrige con una nota dirigida a la sección o se descarta, y se resuelve solo cuando cambia la página. Se ejecuta a pedido o cada N horas.
-- Se guarda la fecha de última edición de cada página (las bases existentes se actualizan solas).
 - Importación de PDFs: división por capítulos (marcadores) o bloques de páginas, partes largas divididas, vista previa del texto, limpieza de encabezados y pies repetidos, y páginas escaneadas enviadas como imágenes. Cada parte elegida se analiza como una nota.
+- Revisión de la documentación: detecta páginas que mencionan tickets de Jira actualizados después, contradicciones entre secciones de páginas distintas (con IA) y páginas sin cambios hace tiempo. Cada hallazgo se corrige con una nota dirigida a la sección o se descarta, y se resuelve solo cuando cambia la página. Se ejecuta a pedido o cada N horas.
+- Se guarda la fecha de última edición de cada página. Las bases de datos de 0.0.1 se actualizan solas al arrancar.
 
 ## 0.0.1-beta (2026-10-27)
 
