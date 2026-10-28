@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{% if first_run %}Bienvenido: configuremos la herramienta{% else %}Ajustes{% endif %}</h1>
 {% if demo %}
-<div class="flash error">Estás en el modo demo: puedes recorrer los ajustes, pero no se guardan.</div>
+<p class="muted">Estás en el modo demo: puedes recorrer los ajustes, pero no se guardan.</p>
 {% endif %}
 {% if first_run %}
 <p>Son unos minutos. Necesitas tu cuenta de Atlassian (la que usas para entrar a Confluence) y, si vas a usar IA, su clave o el modelo local. Cada paso tiene un botón para probar que funciona antes de guardar.</p>

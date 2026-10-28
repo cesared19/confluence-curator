@@ -1,6 +1,6 @@
 # Cambios
 
-## Sin publicar
+## 0.0.3-beta (2026-10-28)
 
 - Asistente de configuración en el navegador: aparece la primera vez y queda en **Ajustes**. Prueba la conexión con Confluence (y permite elegir el espacio de una lista), Jira, Claude y Ollama, y guarda todo sin editar archivos. Los cambios se aplican sin reiniciar.
 - Lanzadores de doble clic para Windows, Mac y Linux: preparan el entorno, instalan lo necesario y abren el navegador.
