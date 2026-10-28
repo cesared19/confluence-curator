@@ -316,3 +316,10 @@ def test_watch_web_flow():
     assert "Revisión automática de Jira activa (cada 15 min)" in client.get("/").text
     bad = client.post("/jira/watch", data={"jql": "", "interval": "15", "enabled": "1"})
     assert "Escribe la consulta JQL" in bad.text
+
+
+def test_jira_page_title_is_plain_text():
+    curator = make_curator()
+    page = TestClient(create_app(curator, Settings())).get("/jira").text
+    title = page[page.index("<title>") : page.index("</title>")]
+    assert title == "<title>Jira · Confluence Curator"

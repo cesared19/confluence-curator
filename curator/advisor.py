@@ -200,6 +200,11 @@ class AnthropicAdvisor:
         content.append({"type": "text", "text": build_prompt(data)})
         return self._parse(SYSTEM_PROMPT, content, Analysis)
 
+    def check(self) -> str:
+        """Prueba la API key y el modelo sin gastar tokens."""
+        model = self.client.models.retrieve(self.model)
+        return getattr(model, "display_name", None) or self.model
+
     def compare(self, a: SectionRef, b: SectionRef) -> ContradictionCheck:
         return self._parse(COMPARE_PROMPT, [{"type": "text", "text": build_compare_prompt(a, b)}], ContradictionCheck)
 
@@ -253,6 +258,16 @@ class OllamaAdvisor:
 
     def analyze(self, data: AdvisorInput) -> Analysis:
         return self._chat(SYSTEM_PROMPT, build_prompt(data), [raw for _, raw in data.images], Analysis)
+
+    def models(self) -> list[str]:
+        """Modelos descargados en Ollama; sirve para probar la conexión."""
+        try:
+            response = self.http.get("/api/tags", timeout=10)
+        except httpx.HTTPError as error:
+            raise RuntimeError(f"No se pudo conectar con Ollama en {self.http.base_url}: {error}") from error
+        if not response.is_success:
+            raise RuntimeError(f"Ollama respondió {response.status_code}")
+        return sorted(m["name"] for m in response.json().get("models", []))
 
     def compare(self, a: SectionRef, b: SectionRef) -> ContradictionCheck:
         return self._chat(COMPARE_PROMPT, build_compare_prompt(a, b), [], ContradictionCheck)

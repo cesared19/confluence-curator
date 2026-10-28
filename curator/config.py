@@ -3,6 +3,44 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def env_path() -> Path:
+    """Archivo de configuración: el que indica CURATOR_ENV_FILE o .env en la carpeta desde la que se arranca."""
+    return Path(os.environ.get("CURATOR_ENV_FILE", ".env"))
+
+
+def save_env(values: dict[str, str]) -> Path:
+    """Guarda claves en el archivo de configuración, conservando comentarios y otras claves.
+
+    También las aplica al entorno del proceso, para que load_settings() las vea sin reiniciar.
+    Un valor vacío borra la clave.
+    """
+    path = env_path()
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    pending = dict(values)
+    result = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
+        if key in pending:
+            value = pending.pop(key)
+            if value:
+                result.append(f"{key}={value}")
+        else:
+            result.append(line)
+    result += [f"{key}={value}" for key, value in pending.items() if value]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(result) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)  # contiene tokens y contraseñas
+    except OSError:
+        pass
+    for key, value in values.items():
+        if value:
+            os.environ[key] = value
+        else:
+            os.environ.pop(key, None)
+    return path
+
+
 def _load_dotenv(path: Path) -> None:
     """Lee un archivo .env sencillo (CLAVE=valor) sin pisar variables ya definidas."""
     if not path.is_file():
@@ -31,6 +69,7 @@ class Settings:
     candidates: int = 10
     app_user: str = ""
     app_password: str = ""
+    setup_open: bool = False  # permite el asistente desde otros equipos sin contraseña (p. ej. dentro de Docker)
     jira_base_url: str = ""
     jira_email: str = ""
     jira_api_token: str = ""
@@ -49,7 +88,7 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    _load_dotenv(Path(os.environ.get("CURATOR_ENV_FILE", ".env")))
+    _load_dotenv(env_path())
     advisor = os.environ.get("CURATOR_ADVISOR", "").strip().lower()
     if not advisor:
         has_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
@@ -70,6 +109,7 @@ def load_settings() -> Settings:
         candidates=int(os.environ.get("CURATOR_CANDIDATES", "10")),
         app_user=os.environ.get("CURATOR_USER", ""),
         app_password=os.environ.get("CURATOR_PASSWORD", ""),
+        setup_open=os.environ.get("CURATOR_SETUP_OPEN") == "1",
         # Jira Cloud suele estar en el mismo sitio y aceptar la misma cuenta que Confluence.
         jira_base_url=os.environ.get("JIRA_BASE_URL", confluence_base_url).rstrip("/"),
         jira_email=os.environ.get("JIRA_EMAIL", os.environ.get("CONFLUENCE_EMAIL", "")),

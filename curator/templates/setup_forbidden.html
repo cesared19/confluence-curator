@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Ajustes · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Ajustes no disponibles desde este equipo</h1>
+<div class="card">
+	<p>Los ajustes guardan los tokens de Confluence y Jira, así que solo se abren desde la computadora donde corre la herramienta, o desde cualquier equipo si la herramienta tiene usuario y contraseña.</p>
+	<p class="muted">Abre <code>http://127.0.0.1:8000/setup</code> en esa computadora. Si corre en Docker, el archivo <code>docker-compose.yml</code> ya lo permite.</p>
+</div>
+{% endblock %}

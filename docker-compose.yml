@@ -1,7 +1,11 @@
 services:
   curator:
     build: .
-    env_file: .env
+    environment:
+      # El asistente de configuración guarda aquí, en el volumen, para que sobreviva a las actualizaciones.
+      CURATOR_ENV_FILE: /data/config.env
+      # El asistente solo se abre desde este equipo: el puerto se publica únicamente en 127.0.0.1.
+      CURATOR_SETUP_OPEN: "1"
     volumes:
       - curator-data:/data
     ports:

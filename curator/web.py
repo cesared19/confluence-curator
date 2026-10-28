@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import __version__, storage
+from . import __version__, setup, storage
 from .advisor import AnthropicAdvisor, MockAdvisor, OllamaAdvisor
 from .audit import KINDS
 from .config import Settings, load_settings
@@ -30,7 +30,8 @@ MAX_PDF_BYTES = 50 * 1024 * 1024
 IMAGE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 
 
-def build_curator(settings: Settings) -> Curator:
+def components(settings: Settings) -> dict:
+    """Clientes de Confluence y Jira y el asesor según la configuración."""
     import os
 
     jira = None
@@ -55,15 +56,26 @@ def build_curator(settings: Settings) -> Curator:
         advisor = OllamaAdvisor(settings.ollama_url, settings.ollama_model, settings.ollama_context)
     else:
         advisor = MockAdvisor()
-    curator = Curator(
-        Database(settings.database_path),
-        advisor,
-        confluence,
-        space_key,
-        settings.candidates,
+    return dict(
+        advisor=advisor,
+        confluence=confluence,
+        space_key=space_key,
+        candidates=settings.candidates,
         jira=jira,
         jira_max_images=settings.jira_max_images,
         pdf_max_scanned=settings.pdf_max_scanned,
+    )
+
+
+def build_curator(settings: Settings) -> Curator:
+    parts = components(settings)
+    curator = Curator(
+        Database(settings.database_path),
+        parts.pop("advisor"),
+        parts.pop("confluence"),
+        parts.pop("space_key"),
+        parts.pop("candidates"),
+        **parts,
     )
     curator.resume_pending()
     curator.start_watcher()
@@ -107,19 +119,20 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
     templates.env.globals.update(ACTIONS=ACTIONS, curator=curator, settings=settings, loads=loads, version=__version__)
     templates.env.filters["when"] = when
 
-    if settings.app_user and settings.app_password:
-
-        @app.middleware("http")
-        async def basic_auth(request: Request, call_next):
-            header = request.headers.get("authorization", "")
-            if header.startswith("Basic "):
-                try:
-                    user, _, password = base64.b64decode(header[6:]).decode().partition(":")
-                except ValueError:
-                    user, password = "", ""
-                if secrets.compare_digest(user, settings.app_user) and secrets.compare_digest(password, settings.app_password):
-                    return await call_next(request)
-            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="curator"'})
+    @app.middleware("http")
+    async def basic_auth(request: Request, call_next):
+        # Se evalúa en cada petición: el asistente de configuración puede activar o cambiar la contraseña.
+        if not (settings.app_user and settings.app_password):
+            return await call_next(request)
+        header = request.headers.get("authorization", "")
+        if header.startswith("Basic "):
+            try:
+                user, _, password = base64.b64decode(header[6:]).decode().partition(":")
+            except ValueError:
+                user, password = "", ""
+            if secrets.compare_digest(user, settings.app_user) and secrets.compare_digest(password, settings.app_password):
+                return await call_next(request)
+        return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="curator"'})
 
     def render(request: Request, name: str, status_code: int = 200, **context):
         return templates.TemplateResponse(request, name, context, status_code=status_code)
@@ -128,8 +141,15 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
         params = "&".join(f"{k}={quote(v)}" for k, v in [("error", error), ("message", message)] if v)
         return RedirectResponse(f"{url}?{params}" if params else url, status_code=303)
 
+    def rebuild() -> None:
+        curator.reconfigure(**components(settings))
+
+    setup.register(app, curator, settings, render, back, rebuild)
+
     @app.get("/", response_class=HTMLResponse)
     def inbox(request: Request, error: str = "", message: str = ""):
+        if curator.confluence is None and not settings.confluence_configured:
+            return RedirectResponse("/setup", status_code=303)  # primera vez: el asistente de configuración
         return render(
             request,
             "inbox.html",

@@ -56,18 +56,37 @@ Hay tres modos, que se eligen con `CURATOR_ADVISOR`:
 
 Si `CURATOR_ADVISOR` está vacío, se usa Claude cuando hay `ANTHROPIC_API_KEY` y, si no, el modo sin IA. **Antes de activar Claude, confirma que la política de tu empresa permite enviar a la API de Anthropic la información del proyecto y el contenido del espacio.** Con la IA activada se envían, en cada análisis, la nota, sus imágenes, los títulos de las páginas y el contenido de las secciones candidatas.
 
-## Puesta en marcha
+## Instalación paso a paso
 
-Requisitos: Python 3.11 o superior.
+No hace falta saber programar ni usar la terminal.
+
+1. **Instala Python** (gratis), versión 3.11 o superior, desde <https://www.python.org/downloads/>. En Windows, durante la instalación, **marca la casilla «Add python.exe to PATH»**. En Mac, abre el instalador descargado y sigue los pasos. Si ya lo tienes, sáltate este paso: el lanzador avisa si falta.
+2. **Descarga la herramienta**: en la página [Releases](https://github.com/cesared19/confluence-curator/releases) elige la versión más reciente y descarga *Source code (zip)*. Descomprímelo en una carpeta fija, por ejemplo *Documentos*.
+3. **Ábrela con doble clic** en el lanzador de tu sistema, dentro de esa carpeta:
+   - **Windows:** `iniciar-windows.bat`. Si aparece «Windows protegió su PC», pulsa *Más información* y *Ejecutar de todas formas*.
+   - **Mac:** `iniciar-mac.command`. La primera vez, haz clic derecho, elige *Abrir* y confirma (macOS lo pide con archivos descargados de internet).
+   - **Linux:** `iniciar-linux.sh` (o `./iniciar-linux.sh` en una terminal).
+
+   Se abre una ventana negra: la primera vez instala lo necesario (uno o dos minutos) y después abre el navegador.
+4. **Sigue el asistente** que aparece en el navegador: dirección de Confluence, correo y token de Atlassian (con el enlace para crearlo), espacio, Jira, IA y, si quieres, una contraseña. Cada paso tiene un botón para probar que funciona. Al guardar, la herramienta lee el espacio y queda lista.
+
+Para usarla otro día, vuelve a abrir el lanzador. Mientras la usas, deja abierta la ventana negra; para cerrarla, cierra esa ventana. Si abres el lanzador cuando ya está en marcha, solo se abre el navegador. La configuración se puede cambiar cuando quieras en **Ajustes**.
+
+Para actualizar a una versión nueva, descárgala en otra carpeta y copia desde la anterior el archivo `.env` (la configuración) y la carpeta `data` (notas e historial).
+
+![Asistente de configuración](docs/screenshots/asistente.png)
+
+### Instalación manual
+
+Para quien prefiere la terminal (Python 3.11 o superior):
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # completa CONFLUENCE_* y, si aplica, ANTHROPIC_API_KEY
-python -m curator      # http://127.0.0.1:8000
+python -m curator --open   # http://127.0.0.1:8000; la primera vez abre el asistente
 ```
 
-Después ve a **Índice → Sincronizar ahora** para que la herramienta lea las páginas del espacio.
+En lugar del asistente se puede copiar `.env.example` a `.env` y completarlo a mano.
 
 Para probar sin credenciales, usa un Confluence simulado con páginas de ejemplo:
 
@@ -77,13 +96,13 @@ CURATOR_DEMO=1 python -m curator
 
 El modo demo incluye también tres tickets de Jira de ejemplo.
 
-Con Docker: `docker compose up -d --build` (usa `.env` y publica la interfaz solo en `127.0.0.1:8000`).
+Con Docker: `docker compose up -d --build` y abre <http://127.0.0.1:8000>, que muestra el asistente. La configuración y los datos quedan en el volumen `curator-data` (`/data/config.env` y `/data/curator.db`) y la interfaz se publica solo en `127.0.0.1:8000`.
 
 ### IA local con Ollama
 
 1. Instala Ollama (<https://ollama.com/download>) en tu equipo o en un servidor de la red.
 2. Descarga un modelo: `ollama pull gemma3:12b`.
-3. En `.env`: `CURATOR_ADVISOR=ollama` y, si hace falta, `OLLAMA_URL`, `OLLAMA_MODEL` y `OLLAMA_CONTEXT`.
+3. En **Ajustes**, paso 3, elige *Modelo local (Ollama)*, pulsa *Probar Ollama* y elige el modelo de la lista. (A mano: `CURATOR_ADVISOR=ollama` y, si hace falta, `OLLAMA_URL`, `OLLAMA_MODEL` y `OLLAMA_CONTEXT` en `.env`.)
 
 Sobre el modelo:
 
@@ -94,11 +113,13 @@ Sobre el modelo:
 
 ### Credenciales de Confluence
 
+El asistente las pide y las prueba. Si prefieres el archivo `.env`:
+
 - `CONFLUENCE_BASE_URL`: `https://tu-empresa.atlassian.net`.
 - `CONFLUENCE_EMAIL` y `CONFLUENCE_API_TOKEN`: una cuenta con permiso de ver, editar y adjuntar en el espacio. El token se crea en <https://id.atlassian.com/manage-profile/security/api-tokens>. Las ediciones aparecen a nombre de esa cuenta.
 - `CONFLUENCE_SPACE_KEY`: la clave del espacio (está en la URL, `/wiki/spaces/CLAVE/...`).
 
-Si la herramienta corre en un servidor compartido, define `CURATOR_USER` y `CURATOR_PASSWORD` para pedir usuario y contraseña.
+Si la herramienta corre en un servidor compartido, ponle usuario y contraseña (paso 4 del asistente, o `CURATOR_USER` y `CURATOR_PASSWORD`). Por seguridad, **Ajustes** solo se abre desde la computadora donde corre la herramienta, salvo que tenga contraseña.
 
 ### Jira
 
@@ -150,6 +171,8 @@ Estructura:
 - `curator/advisor.py`: asesores (Claude y Ollama con salida estructurada, y modo sin IA).
 - `curator/service.py`: flujo de notas, propuestas y publicación, importación de Jira y cola de análisis en segundo plano.
 - `curator/web.py` y `curator/templates/`: interfaz web (FastAPI + Jinja).
+- `curator/setup.py`: asistente de configuración (pruebas de conexión y guardado en `.env`).
+- `iniciar-windows.bat`, `iniciar-mac.command`, `iniciar-linux.sh` y `scripts/iniciar.sh`: lanzadores de doble clic.
 - `curator/demo.py`: Confluence y Jira simulados.
 - `scripts/`: servidor de demostración con propuestas de ejemplo y script de capturas.
 

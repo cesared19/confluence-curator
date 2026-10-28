@@ -58,6 +58,16 @@ class Curator:
         self.watcher: threading.Thread | None = None
         self.auditor = Auditor(self)
 
+    def reconfigure(self, advisor, confluence, space_key: str, candidates: int, jira, jira_max_images: int, pdf_max_scanned: int) -> None:
+        """Aplica una configuración nueva sin reiniciar (lo usa el asistente de configuración)."""
+        self.advisor = advisor
+        self.confluence = confluence
+        self.space_key = space_key
+        self.candidate_limit = candidates
+        self.jira = jira
+        self.jira_max_images = jira_max_images
+        self.pdf_max_scanned = pdf_max_scanned
+
     # Índice ---------------------------------------------------------------
 
     def _require_confluence(self):

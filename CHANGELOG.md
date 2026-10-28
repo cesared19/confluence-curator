@@ -1,5 +1,13 @@
 # Cambios
 
+## Sin publicar
+
+- Asistente de configuración en el navegador: aparece la primera vez y queda en **Ajustes**. Prueba la conexión con Confluence (y permite elegir el espacio de una lista), Jira, Claude y Ollama, y guarda todo sin editar archivos. Los cambios se aplican sin reiniciar.
+- Lanzadores de doble clic para Windows, Mac y Linux: preparan el entorno, instalan lo necesario y abren el navegador.
+- `python -m curator --open` abre el navegador; si la herramienta ya está en marcha, solo lo abre.
+- Docker: la configuración pasa a `/data/config.env` en el volumen y se hace desde el asistente. Quien usaba `.env` con Docker puede copiarlo al volumen o volver a configurarla en **Ajustes**.
+- Corregido: el título de la pestaña en la página Jira mostraba HTML.
+
 ## 0.0.2-beta (2026-10-27)
 
 - Importación de PDFs: división por capítulos (marcadores) o bloques de páginas, partes largas divididas, vista previa del texto, limpieza de encabezados y pies repetidos, y páginas escaneadas enviadas como imágenes. Cada parte elegida se analiza como una nota.

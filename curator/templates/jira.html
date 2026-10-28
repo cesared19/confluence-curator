@@ -1,37 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Jira · Confluence Curator<section class="card" id="automatica">
-	<h2>Revisión automática</h2>
-	<p class="muted">Cada cierto tiempo busca con esta consulta e importa los tickets nuevos o que cambiaron, para que lleguen a la bandeja sin buscarlos. Al activarla solo se traen los tickets que cambien de ahí en adelante; los anteriores se importan arriba a mano. Como mucho trae {{ curator.WATCH_BATCH }} por revisión.</p>
-	<form method="post" action="/jira/watch">
-		<label for="watch-jql">Consulta JQL</label>
-		<input id="watch-jql" name="jql" type="text" value="{{ watch.jql }}" placeholder="project = SIM AND status changed AFTER -1d">
-		<div class="row">
-			<div>
-				<label for="watch-interval">Cada (minutos)</label>
-				<input id="watch-interval" name="interval" type="number" min="5" step="5" value="{{ watch.interval }}">
-			</div>
-			<div>
-				<label for="watch-enabled">Estado</label>
-				<select id="watch-enabled" name="enabled">
-					<option value="1" {% if watch.enabled %}selected{% endif %}>Activada</option>
-					<option value="" {% if not watch.enabled %}selected{% endif %}>Desactivada</option>
-				</select>
-			</div>
-		</div>
-		<div class="actions">
-			<button class="primary" type="submit">Guardar</button>
-			{% if watch.jql %}<button type="submit" formaction="/jira/watch/run">Revisar ahora</button>{% endif %}
-		</div>
-	</form>
-	{% if watch.last_run or watch.since %}
-	<p class="muted">
-		{% if watch.enabled and watch.since %}Activa desde {{ watch.since|when }}.{% endif %}
-		{% if watch.last_run %}Última revisión: {{ watch.last_run|when }}{% if watch.last_result %} · {{ watch.last_result }}{% endif %}{% endif %}
-	</p>
-	{% endif %}
-	{% if watch.last_error %}<div class="flash error">Último error: {{ watch.last_error }}</div>{% endif %}
-</section>
-{% endblock %}
+{% block title %}Jira · Confluence Curator{% endblock %}
 {% block content %}
 <h1>Importar desde Jira</h1>
 {% if curator.jira is none %}

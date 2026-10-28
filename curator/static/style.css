@@ -125,6 +125,7 @@ label {
 
 textarea,
 input[type='text'],
+input[type='password'],
 input[type='number'],
 input[type='search'],
 select {
@@ -389,4 +390,90 @@ nav.tabs a[aria-current='page'] {
 	color: var(--text);
 	font-weight: 600;
 	border-bottom-color: var(--accent);
+}
+
+.step {
+	display: inline-grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	margin-right: 6px;
+	border-radius: 50%;
+	background: var(--accent);
+	color: var(--accent-text);
+	font-size: 14px;
+}
+
+label.check,
+label.option {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+	font-weight: 400;
+}
+
+label.option {
+	margin: 14px 0 6px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+label.option:has(input:checked) {
+	border-color: var(--accent);
+}
+
+label.check input,
+label.option input {
+	margin-top: 4px;
+	flex: none;
+}
+
+.advisor-fields {
+	margin: 0 0 8px 12px;
+	padding-left: 12px;
+	border-left: 2px solid var(--border);
+}
+
+.test-result:empty {
+	display: none;
+}
+
+.test-result {
+	margin-top: 8px;
+	padding: 8px 12px;
+	border-radius: 6px;
+}
+
+.test-result.ok {
+	background: var(--ok-bg);
+	color: var(--ok);
+}
+
+.test-result.error {
+	background: var(--danger-bg);
+	color: var(--danger);
+}
+
+details.help {
+	margin-top: 8px;
+}
+
+details.help summary {
+	font-weight: 400;
+	color: var(--accent);
+}
+
+#space-list,
+#model-list {
+	margin-bottom: 8px;
+}
+
+code {
+	font: 0.9em ui-monospace, Menlo, Consolas, monospace;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0 4px;
 }

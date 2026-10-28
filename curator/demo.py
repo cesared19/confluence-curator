@@ -44,6 +44,7 @@ def _now() -> str:
 
 class FakeConfluence:
     base_url = "https://demo.atlassian.net"
+    demo = True
 
     def __init__(self):
         self.pages = {pid: Page(pid, title, parent, 1, body, SAMPLE_UPDATED) for pid, title, parent, body in SAMPLE}
@@ -55,6 +56,9 @@ class FakeConfluence:
 
     def space_id(self, space_key: str) -> str:
         return "demo"
+
+    def list_spaces(self) -> list[tuple[str, str]]:
+        return [("DEMO", "Simulador VR (demo)")]
 
     def list_pages(self, space_id: str) -> list[Page]:
         return list(self.pages.values())
@@ -124,6 +128,9 @@ class FakeJira:
 
     def issue_url(self, key: str) -> str:
         return f"https://demo.atlassian.net/browse/{key}"
+
+    def myself(self) -> str:
+        return "Cuenta demo"
 
     def search(self, query: str, limit: int = 50):
         from .jira import IssueSummary, to_jql

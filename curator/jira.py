@@ -117,6 +117,10 @@ class JiraClient:
             detail = response.text
         raise JiraError(f"Jira respondió {response.status_code}: {detail[:500]}", response.status_code)
 
+    def myself(self) -> str:
+        """Nombre de la cuenta con la que se conecta; sirve para probar las credenciales."""
+        return _name(self._check(self.http.get("/rest/api/3/myself")).json())
+
     def search(self, query: str, limit: int = 50) -> list[IssueSummary]:
         payload = {"jql": to_jql(query), "fields": SEARCH_FIELDS, "maxResults": min(limit, 100)}
         issues: list[IssueSummary] = []

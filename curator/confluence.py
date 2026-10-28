@@ -52,6 +52,18 @@ class ConfluenceClient:
             raise ConfluenceError(f"No existe el espacio {space_key} o la cuenta no tiene acceso")
         return str(results[0]["id"])
 
+    def list_spaces(self) -> list[tuple[str, str]]:
+        """Espacios a los que la cuenta tiene acceso: (clave, nombre), ordenados por nombre."""
+        spaces: list[tuple[str, str]] = []
+        url: str | None = "/wiki/api/v2/spaces"
+        params: dict | None = {"limit": 250, "status": "current"}
+        while url:
+            data = self._check(self.http.get(url, params=params)).json()
+            spaces += [(item["key"], item.get("name") or item["key"]) for item in data.get("results", [])]
+            url = data.get("_links", {}).get("next")
+            params = None
+        return sorted(spaces, key=lambda s: s[1].lower())
+
     def list_pages(self, space_id: str) -> list[Page]:
         pages: list[Page] = []
         url: str | None = f"/wiki/api/v2/spaces/{space_id}/pages"

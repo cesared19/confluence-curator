@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Ajustes · Confluence Curator{% endblock %}
+{% block content %}
+<h1>{% if first_run %}Bienvenido: configuremos la herramienta{% else %}Ajustes{% endif %}</h1>
+{% if demo %}
+<div class="flash error">Estás en el modo demo: puedes recorrer los ajustes, pero no se guardan.</div>
+{% endif %}
+{% if first_run %}
+<p>Son unos minutos. Necesitas tu cuenta de Atlassian (la que usas para entrar a Confluence) y, si vas a usar IA, su clave o el modelo local. Cada paso tiene un botón para probar que funciona antes de guardar.</p>
+{% endif %}
+
+<form method="post" action="/setup" id="setup" data-busy="Guardando y leyendo el espacio…">
+	<section class="card">
+		<h2><span class="step">1</span> Confluence</h2>
+		<label for="confluence_base_url">Dirección del sitio</label>
+		<input id="confluence_base_url" name="confluence_base_url" type="text" value="{{ s.confluence_base_url }}" placeholder="https://tu-empresa.atlassian.net" autocomplete="url">
+		<p class="muted">La que ves en el navegador al abrir Confluence, hasta <code>.atlassian.net</code>.</p>
+
+		<label for="confluence_email">Correo de tu cuenta de Atlassian</label>
+		<input id="confluence_email" name="confluence_email" type="text" value="{{ s.confluence_email }}" autocomplete="email" inputmode="email">
+
+		<label for="confluence_api_token">Token de API</label>
+		<input id="confluence_api_token" name="confluence_api_token" type="password" autocomplete="off" placeholder="{{ 'Guardado. Déjalo vacío para conservarlo' if s.confluence_api_token else 'Pega aquí el token' }}">
+		<details class="help">
+			<summary>¿Cómo consigo el token?</summary>
+			<ol>
+				<li>Abre <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">id.atlassian.com → Seguridad → Tokens de API</a> con tu cuenta.</li>
+				<li>Pulsa <em>Crear token de API</em>, ponle un nombre como «Confluence Curator» y una fecha de vencimiento.</li>
+				<li>Copia el token y pégalo aquí. Atlassian no lo vuelve a mostrar.</li>
+			</ol>
+			<p class="muted">La herramienta edita Confluence con esta cuenta: los cambios aparecen a su nombre y solo puede tocar lo que la cuenta puede editar.</p>
+		</details>
+
+		<div class="actions"><button type="button" data-test="confluence">Probar conexión</button></div>
+		<div class="test-result" id="result-confluence" role="status"></div>
+
+		<label for="confluence_space_key">Espacio</label>
+		<select id="space-list" hidden aria-label="Elegir espacio"></select>
+		<input id="confluence_space_key" name="confluence_space_key" type="text" value="{{ s.confluence_space_key }}" placeholder="Clave del espacio, p. ej. SIM">
+		<p class="muted">Pulsa <em>Probar conexión</em> para elegirlo de la lista. La clave también aparece en la dirección del espacio: <code>/wiki/spaces/CLAVE/…</code></p>
+	</section>
+
+	<section class="card">
+		<h2><span class="step">2</span> Jira <span class="muted">(opcional)</span></h2>
+		<label class="check"><input type="checkbox" name="same_jira" value="1" id="same_jira" {% if same_jira %}checked{% endif %}> Usar el mismo sitio y la misma cuenta que Confluence</label>
+		<p class="muted">Es lo habitual: Jira y Confluence comparten la cuenta de Atlassian. La herramienta solo lee Jira; no cambia tickets.</p>
+		<div id="jira-fields" {% if same_jira %}hidden{% endif %}>
+			<label for="jira_base_url">Dirección de Jira</label>
+			<input id="jira_base_url" name="jira_base_url" type="text" value="{{ s.jira_base_url if not same_jira else '' }}" placeholder="https://tu-empresa.atlassian.net">
+			<label for="jira_email">Correo</label>
+			<input id="jira_email" name="jira_email" type="text" value="{{ s.jira_email if not same_jira else '' }}">
+			<label for="jira_api_token">Token de API</label>
+			<input id="jira_api_token" name="jira_api_token" type="password" autocomplete="off" placeholder="{{ 'Guardado. Déjalo vacío para conservarlo' if s.jira_api_token and not same_jira else 'Pega aquí el token' }}">
+		</div>
+		<div class="actions"><button type="button" data-test="jira">Probar Jira</button></div>
+		<div class="test-result" id="result-jira" role="status"></div>
+	</section>
+
+	<section class="card">
+		<h2><span class="step">3</span> Inteligencia artificial</h2>
+		<p class="muted">Decide dónde va cada información y redacta los cambios. Puedes cambiarla cuando quieras.</p>
+		<label class="option"><input type="radio" name="advisor" value="mock" {% if s.advisor == 'mock' %}checked{% endif %}>
+			<span><strong>Sin IA, para probar.</strong> No envía datos a ningún servicio. Las propuestas son simples: agrega la nota a la sección más parecida.</span></label>
+		<label class="option"><input type="radio" name="advisor" value="anthropic" {% if s.advisor == 'anthropic' %}checked{% endif %}>
+			<span><strong>Claude (Anthropic).</strong> La mejor calidad, también con imágenes y PDFs escaneados. Envía a Anthropic la nota y las partes de la documentación relacionadas: confirma que tu empresa lo permite.</span></label>
+		<div class="advisor-fields" data-advisor="anthropic">
+			<label for="anthropic_api_key">API key de Anthropic</label>
+			<input id="anthropic_api_key" name="anthropic_api_key" type="password" autocomplete="off" placeholder="{{ 'Guardada. Déjala vacía para conservarla' if has_anthropic_key else 'sk-ant-…' }}">
+			<p class="muted">Se crea en <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com → API keys</a>. El uso se cobra por consumo en esa cuenta.</p>
+			<div class="actions"><button type="button" data-test="anthropic">Probar Claude</button></div>
+			<div class="test-result" id="result-anthropic" role="status"></div>
+		</div>
+		<label class="option"><input type="radio" name="advisor" value="ollama" {% if s.advisor == 'ollama' %}checked{% endif %}>
+			<span><strong>Modelo local (Ollama).</strong> La información no sale de tu red. Hay que instalar <a href="https://ollama.com/download" target="_blank" rel="noopener">Ollama</a> y descargar un modelo; necesita un equipo potente.</span></label>
+		<div class="advisor-fields" data-advisor="ollama">
+			<label for="ollama_url">Dirección de Ollama</label>
+			<input id="ollama_url" name="ollama_url" type="text" value="{{ s.ollama_url }}">
+			<div class="actions"><button type="button" data-test="ollama">Probar Ollama</button></div>
+			<div class="test-result" id="result-ollama" role="status"></div>
+			<label for="ollama_model">Modelo</label>
+			<select id="model-list" hidden aria-label="Elegir modelo"></select>
+			<input id="ollama_model" name="ollama_model" type="text" value="{{ s.ollama_model }}">
+			<p class="muted">Para leer imágenes elige uno con visión, como <code>gemma3</code>. Para descargarlo, en una terminal: <code>ollama pull gemma3:12b</code></p>
+		</div>
+	</section>
+
+	<section class="card">
+		<h2><span class="step">4</span> Acceso <span class="muted">(opcional)</span></h2>
+		<p class="muted">Si solo la usas en tu computadora no hace falta. Si la dejas en un servidor para el equipo, ponle usuario y contraseña: guarda el token de Confluence y puede publicar cambios.</p>
+		<div class="row">
+			<div>
+				<label for="app_user">Usuario</label>
+				<input id="app_user" name="app_user" type="text" value="{{ s.app_user }}" autocomplete="username">
+			</div>
+			<div>
+				<label for="app_password">Contraseña</label>
+				<input id="app_password" name="app_password" type="password" autocomplete="new-password" placeholder="{{ 'Guardada. Déjala vacía para conservarla' if s.app_password else '' }}">
+			</div>
+		</div>
+		{% if s.app_password %}<label class="check"><input type="checkbox" name="remove_password" value="1"> Quitar la contraseña</label>{% endif %}
+	</section>
+
+	<div class="actions">
+		<button class="primary" type="submit">{% if first_run %}Guardar y empezar{% else %}Guardar{% endif %}</button>
+	</div>
+	<p class="muted">Se guarda en <code>{{ env_file }}</code>. Ese archivo contiene los tokens: no lo compartas.</p>
+</form>
+
+<script>
+	const form = document.getElementById('setup')
+	const field = (name) => form.elements[name]
+
+	const sameJira = document.getElementById('same_jira')
+	sameJira.addEventListener('change', () => (document.getElementById('jira-fields').hidden = sameJira.checked))
+
+	const showAdvisor = () => {
+		const chosen = form.querySelector('input[name=advisor]:checked')?.value
+		form.querySelectorAll('.advisor-fields').forEach((el) => (el.hidden = el.dataset.advisor !== chosen))
+	}
+	form.querySelectorAll('input[name=advisor]').forEach((el) => el.addEventListener('change', showAdvisor))
+	showAdvisor()
+
+	const fill = (select, input, items) => {
+		select.replaceChildren(
+			new Option('Elegir de la lista…', ''),
+			...items.map(([value, label]) => new Option(label === value ? value : `${label} (${value})`, value, false, value === input.value))
+		)
+		select.hidden = false
+		select.onchange = () => select.value && (input.value = select.value)
+	}
+
+	const payloads = {
+		confluence: () => ({
+			base_url: field('confluence_base_url').value,
+			email: field('confluence_email').value,
+			token: field('confluence_api_token').value,
+		}),
+		jira: () =>
+			sameJira.checked
+				? { base_url: field('confluence_base_url').value, email: field('confluence_email').value, token: field('confluence_api_token').value }
+				: { base_url: field('jira_base_url').value, email: field('jira_email').value, token: field('jira_api_token').value },
+		anthropic: () => ({ api_key: field('anthropic_api_key').value }),
+		ollama: () => ({ url: field('ollama_url').value }),
+	}
+
+	form.querySelectorAll('button[data-test]').forEach((button) => {
+		button.addEventListener('click', async () => {
+			const kind = button.dataset.test
+			const result = document.getElementById(`result-${kind}`)
+			const label = button.textContent
+			button.disabled = true
+			button.textContent = 'Probando…'
+			result.className = 'test-result'
+			result.textContent = ''
+			try {
+				const response = await fetch(`/setup/test/${kind}`, { method: 'POST', body: new URLSearchParams(payloads[kind]()) })
+				const data = await response.json()
+				result.className = `test-result ${data.ok ? 'ok' : 'error'}`
+				result.textContent = data.message
+				if (data.spaces) fill(document.getElementById('space-list'), field('confluence_space_key'), data.spaces)
+				if (data.models) fill(document.getElementById('model-list'), field('ollama_model'), data.models.map((m) => [m, m]))
+			} catch (error) {
+				result.className = 'test-result error'
+				result.textContent = 'No se pudo hacer la prueba: ' + error
+			} finally {
+				button.disabled = false
+				button.textContent = label
+			}
+		})
+	})
+</script>
+{% endblock %}
