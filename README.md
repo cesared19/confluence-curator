@@ -1,6 +1,6 @@
 # Confluence Curator
 
-> **Beta 0.0.3.** Probada con un Confluence y un Jira simulados; todavía no contra un sitio real de Atlassian. Los lanzadores se probaron en Linux; los de Windows y Mac, todavía no. Haz las primeras pruebas en páginas sin importancia.
+> **Beta 0.0.3.** La conexión con Confluence Cloud y Jira Cloud reales ya se probó; el resto del flujo (propuestas y publicación) se probó con un Confluence simulado. Los lanzadores funcionan en Mac y Linux; el de Windows todavía no se probó. Haz las primeras publicaciones en páginas sin importancia.
 
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
