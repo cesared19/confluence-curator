@@ -9,7 +9,7 @@ from curator.advisor import MockAdvisor
 from curator.config import Settings, load_settings, save_env
 from curator.confluence import ConfluenceError
 from curator.db import Database
-from curator.demo import FakeConfluence, FakeJira
+from curator.demo import FakeChat, FakeConfluence, FakeJira
 from curator.service import Curator
 from curator.web import create_app
 
@@ -17,7 +17,7 @@ LOCAL = ("127.0.0.1", 50000)
 KEYS = [
     "CONFLUENCE_BASE_URL", "CONFLUENCE_EMAIL", "CONFLUENCE_API_TOKEN", "CONFLUENCE_SPACE_KEY", "CURATOR_ADVISOR",
     "JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "ANTHROPIC_API_KEY", "OLLAMA_URL", "OLLAMA_MODEL",
-    "CURATOR_USER", "CURATOR_PASSWORD", "CURATOR_ENV_FILE", "CURATOR_DEMO", "ANTHROPIC_AUTH_TOKEN",
+    "CURATOR_USER", "CURATOR_PASSWORD", "CURATOR_ENV_FILE", "CURATOR_DEMO", "ANTHROPIC_AUTH_TOKEN", "SLACK_TOKEN",
 ]
 
 
@@ -68,7 +68,7 @@ def app(env, monkeypatch):
         "components",
         lambda s: dict(
             advisor=MockAdvisor(), confluence=SavedConfluence(), space_key=s.confluence_space_key, candidates=10,
-            jira=FakeJira(), jira_max_images=5, pdf_max_scanned=5,
+            jira=FakeJira(), jira_max_images=5, pdf_max_scanned=5, chat=FakeChat() if s.slack_token else None,
         ),
     )
     settings = load_settings()
@@ -207,3 +207,41 @@ def test_demo_does_not_save(env):
               "confluence_space_key": "S", "advisor": "mock"},
     )
     assert "no se guardan" in response.text and not env.exists()
+
+
+def test_slack_step(app, env, monkeypatch):
+    application, curator, settings = app
+    client = TestClient(application, client=LOCAL)
+
+    class FakeSlack:
+        def __init__(self, token):
+            self.token = token
+
+        def check(self):
+            if self.token != "xoxp-ok":
+                from curator.chat import ChatError
+
+                raise ChatError("Slack rechazó el token. Revisa que esté copiado completo.")
+            return "Simulador VR como ana"
+
+        def channels(self):
+            return [object(), object()]
+
+    monkeypatch.setattr("curator.chat.SlackSource", FakeSlack)
+    assert client.post("/setup/test/slack", data={"token": "xoxp-ok"}).json() == {
+        "ok": True, "message": "Conectado a Simulador VR como ana: 2 canales disponibles."
+    }
+    assert "rechazó el token" in client.post("/setup/test/slack", data={"token": "malo"}).json()["message"]
+
+    base = {
+        "confluence_base_url": "acme.atlassian.net", "confluence_email": "yo@acme.com",
+        "confluence_api_token": "t", "confluence_space_key": "SIM", "same_jira": "1", "advisor": "mock",
+    }
+    assert "falta el token" in client.post("/setup", data={**base, "chat_source": "slack"}).text
+    client.post("/setup", data={**base, "chat_source": "slack", "slack_token": "xoxp-ok"})
+    assert "SLACK_TOKEN=xoxp-ok" in env.read_text() and curator.chat is not None
+    assert "xoxp-ok" not in client.get("/setup").text
+    client.post("/setup", data={**base, "chat_source": "slack"})  # vacío: conserva el guardado
+    assert "SLACK_TOKEN=xoxp-ok" in env.read_text()
+    client.post("/setup", data={**base, "chat_source": ""})
+    assert "SLACK_TOKEN" not in env.read_text() and curator.chat is None

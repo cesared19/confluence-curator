@@ -85,6 +85,10 @@ await shot('propuesta.png', { fullPage: true })
 await page.goto(`${base}/jira?q=${encodeURIComponent('project = SIM ORDER BY updated DESC')}`)
 await shot('jira.png', { fullPage: true })
 
+await page.goto(`${base}/chat?channel=C1&days=7`)
+await page.locator('input[name=keys]').first().check()
+await shot('chat.png', { fullPage: true })
+
 await page.goto(`${base}/setup`)
 await shot('asistente.png', { fullPage: true })
 

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from curator.advisor import Alternative, Analysis, Change, ContradictionCheck, MockAdvisor  # noqa: E402
 from curator.config import Settings  # noqa: E402
 from curator.db import Database  # noqa: E402
-from curator.demo import FakeConfluence, FakeJira  # noqa: E402
+from curator.demo import FakeChat, FakeConfluence, FakeJira  # noqa: E402
 from curator.service import Curator  # noqa: E402
 from curator.web import create_app  # noqa: E402
 
@@ -168,7 +168,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8770)
     args = parser.parse_args()
-    curator = Curator(Database(":memory:"), ExampleAdvisor(), FakeConfluence(), "DEMO", jira=FakeJira())
+    curator = Curator(Database(":memory:"), ExampleAdvisor(), FakeConfluence(), "DEMO", jira=FakeJira(), chat=FakeChat())
     try:
         curator.add_pdf("manual-x200-v2.3.pdf", sample_manual(), "Manual del producto")
     except ImportError:

@@ -156,3 +156,61 @@ class FakeJira:
         if comments:
             lines += ["", "Comentarios:"] + [f"- {who} ({when[:10]}): {text}" for who, when, text in comments]
         return Issue(key, self.issue_url(key), updated, "\n".join(lines))
+
+
+class FakeChat:
+    """Slack simulado con un canal de ejemplo para el modo demo; las fechas son relativas a hoy."""
+
+    name = "Slack"
+
+    def __init__(self):
+        from datetime import datetime, timedelta, timezone
+
+        from .chat import Channel, Message
+
+        self.channel = Channel("C1", "simulador-vr")
+        now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+
+        def ts(days: int, hour: int, minute: int) -> str:
+            moment = (now - timedelta(days=days)).replace(hour=hour, minute=minute)
+            return f"{moment.timestamp():.6f}"
+
+        self.threads = {
+            ts(1, 15, 10): [
+                Message("Ana Pérez", ts(1, 15, 10), "¿Confirmamos cómo se silencian las alarmas en la simulación?"),
+                Message("Luis Gómez", ts(1, 15, 22), "En la reunión quedó el botón B del control derecho."),
+                Message("Ana Pérez", ts(1, 15, 30), "Perfecto. En el equipo real es girando la perilla de modo."),
+            ],
+        }
+        self.loose = [
+            Message("Marta Ruiz", ts(3, 10, 0), "El cliente mandó fotos del panel nuevo.",
+                    [{"name": "panel.png", "mimetype": "image/png", "size": 10, "url": "demo://panel"}]),
+            Message("Marta Ruiz", ts(3, 10, 5), "Tiene cinco perillas; la nueva es de volumen."),
+            Message("Luis Gómez", ts(5, 18, 40), "¿Alguien vio el partido ayer?"),
+        ]
+
+    def check(self) -> str:
+        return "Simulador VR (demo) como bot-curator"
+
+    def channels(self):
+        return [self.channel]
+
+    def conversations(self, channel, days: int):
+        from .chat import Conversation, group
+
+        raw = [{"ts": m.ts, "_m": m} for m in self.loose]
+        raw += [{"ts": t, "_m": msgs[0], "reply_count": len(msgs) - 1, "latest_reply": msgs[-1].ts} for t, msgs in self.threads.items()]
+        result: list[Conversation] = group(channel, raw, lambda r: r["_m"], lambda t: f"https://demo.slack.com/archives/C1/p{t.replace('.', '')}")
+        return result
+
+    def complete(self, conversation):
+        if conversation.thread:
+            conversation.messages = list(self.threads[conversation.messages[0].ts])
+            conversation.last_ts = conversation.messages[-1].ts
+        return conversation
+
+    def download(self, file: dict) -> bytes:
+        import base64
+
+        # PNG de 1×1 píxel.
+        return base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==")

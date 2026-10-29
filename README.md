@@ -4,7 +4,7 @@
 
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
-Le das un texto o una imagen, la traes directamente de tickets de Jira o subes un PDF (por ejemplo, el manual del producto), y la herramienta:
+Le das un texto o una imagen, la traes directamente de tickets de Jira o de conversaciones de Slack, o subes un PDF (por ejemplo, el manual del producto), y la herramienta:
 
 1. Busca en el espacio de Confluence las secciones relacionadas.
 2. Propone dónde va: actualizar una sección, agregar al final de una página o crear una página nueva. Muestra el porqué, una confianza y las contradicciones con lo ya publicado (por ejemplo, "antes 8 bar, ahora 7,5 bar").
@@ -32,6 +32,10 @@ Tomadas en el modo demo, con Confluence y Jira simulados y propuestas de ejemplo
 **Revisión:** una contradicción entre dos páginas y una página que menciona un ticket que cambió después.
 
 ![Revisión de la documentación con hallazgos](docs/screenshots/revision.png)
+
+**Chat:** conversaciones de un canal de Slack agrupadas en hilos y mensajes cercanos, listas para importar.
+
+![Importación desde Slack](docs/screenshots/chat.png)
 
 **PDF:** un manual dividido por capítulos, con la página escaneada detectada.
 
@@ -68,7 +72,7 @@ No hace falta saber programar ni usar la terminal.
    - **Linux:** `iniciar-linux.sh` (o `./iniciar-linux.sh` en una terminal).
 
    Se abre una ventana negra: la primera vez instala lo necesario (uno o dos minutos) y después abre el navegador.
-4. **Sigue el asistente** que aparece en el navegador: dirección de Confluence, correo y token de Atlassian (con el enlace para crearlo), espacio, Jira, IA y, si quieres, una contraseña. Cada paso tiene un botón para probar que funciona. Al guardar, la herramienta lee el espacio y queda lista.
+4. **Sigue el asistente** que aparece en el navegador: dirección de Confluence, correo y token de Atlassian (con el enlace para crearlo), espacio, Jira, el chat, la IA y, si quieres, una contraseña. Cada paso tiene un botón para probar que funciona. Al guardar, la herramienta lee el espacio y queda lista.
 
 Para usarla otro día, vuelve a abrir el lanzador. Mientras la usas, deja abierta la ventana negra; para cerrarla, cierra esa ventana. Si abres el lanzador cuando ya está en marcha, solo se abre el navegador. La configuración se puede cambiar cuando quieras en **Ajustes**.
 
@@ -102,7 +106,7 @@ Con Docker: `docker compose up -d --build` y abre <http://127.0.0.1:8000>, que m
 
 1. Instala Ollama (<https://ollama.com/download>) en tu equipo o en un servidor de la red.
 2. Descarga un modelo: `ollama pull gemma3:12b`.
-3. En **Ajustes**, paso 3, elige *Modelo local (Ollama)*, pulsa *Probar Ollama* y elige el modelo de la lista. (A mano: `CURATOR_ADVISOR=ollama` y, si hace falta, `OLLAMA_URL`, `OLLAMA_MODEL` y `OLLAMA_CONTEXT` en `.env`.)
+3. En **Ajustes**, paso 4, elige *Modelo local (Ollama)*, pulsa *Probar Ollama* y elige el modelo de la lista. (A mano: `CURATOR_ADVISOR=ollama` y, si hace falta, `OLLAMA_URL`, `OLLAMA_MODEL` y `OLLAMA_CONTEXT` en `.env`.)
 
 Sobre el modelo:
 
@@ -119,7 +123,19 @@ El asistente las pide y las prueba. Si prefieres el archivo `.env`:
 - `CONFLUENCE_EMAIL` y `CONFLUENCE_API_TOKEN`: una cuenta con permiso de ver, editar y adjuntar en el espacio. El token se crea en <https://id.atlassian.com/manage-profile/security/api-tokens>. Las ediciones aparecen a nombre de esa cuenta.
 - `CONFLUENCE_SPACE_KEY`: la clave del espacio (está en la URL, `/wiki/spaces/CLAVE/...`).
 
-Si la herramienta corre en un servidor compartido, ponle usuario y contraseña (paso 4 del asistente, o `CURATOR_USER` y `CURATOR_PASSWORD`). Por seguridad, **Ajustes** solo se abre desde la computadora donde corre la herramienta, salvo que tenga contraseña.
+Si la herramienta corre en un servidor compartido, ponle usuario y contraseña (paso 5 del asistente, o `CURATOR_USER` y `CURATOR_PASSWORD`). Por seguridad, **Ajustes** solo se abre desde la computadora donde corre la herramienta, salvo que tenga contraseña.
+
+### Chat
+
+Hoy la herramienta se conecta con **Slack** (paso 3 del asistente). Necesita el token de una app interna de tu espacio de trabajo:
+
+1. En <https://api.slack.com/apps>, *Create New App → From scratch*, con un nombre como «Confluence Curator» y tu espacio de trabajo. Debe quedar como app interna, sin distribuirla: Slack limita mucho la lectura de mensajes a las apps distribuidas fuera del espacio.
+2. En *OAuth & Permissions*, agrega `channels:read`, `channels:history`, `groups:read`, `groups:history`, `users:read` y `files:read`:
+   - como *User Token Scopes*, la herramienta lee los canales en los que estás tú;
+   - como *Bot Token Scopes*, lee solo los canales a los que invites la app (`/invite @Confluence Curator`).
+3. *Install to Workspace* (puede requerir la aprobación de quien administra Slack) y copia el token (`xoxp-…` o `xoxb-…`) en el asistente.
+
+La herramienta solo lee mensajes; no escribe en Slack. Para sumar otro chat (Teams, Google Chat, Discord, Mattermost…) hace falta un conector que lea sus mensajes: `curator/chat.py` define la interfaz que debe cumplir.
 
 ### Jira
 
@@ -132,6 +148,7 @@ La herramienta solo lee Jira: no cambia tickets ni agrega comentarios.
 - **Bandeja:** pega el texto (un hilo de chat, la descripción y los comentarios de un ticket, un fragmento del manual), indica la fuente y adjunta imágenes si hacen falta. Una nota puede generar varias propuestas si toca varios temas.
 - **Jira:** busca con JQL (por ejemplo `project = SIM AND updated >= -14d ORDER BY updated DESC`) o escribiendo claves (`SIM-101, SIM-102`). Elige los tickets y cada uno se convierte en una nota con sus datos (tipo, estado, etiquetas, versiones, responsables), la descripción, todos los comentarios, el enlace y las imágenes adjuntas (hasta 10 MB cada una). Las notas se analizan en segundo plano, de a una; la bandeja muestra *Analizando…* y se actualiza sola. La lista indica qué tickets ya se importaron y cuáles cambiaron desde entonces, que quedan marcados para volver a importarlos.
 - **Revisión automática de Jira:** en la página Jira guarda una consulta JQL y cada cuántos minutos revisarla (mínimo 5). La herramienta importa sola los tickets nuevos o que cambiaron, hasta 20 por revisión; los demás quedan para la siguiente. Al activarla solo trae lo que cambie de ahí en adelante, para no llenar la bandeja con tickets viejos; esos se importan a mano. *Revisar ahora* la ejecuta en el momento. La bandeja muestra cuándo fue la última revisión y si falló. La revisión corre mientras la aplicación esté encendida.
+- **Chat:** elige un canal y cuántos días hacia atrás mirar (hasta 90). Los mensajes se agrupan en conversaciones: cada hilo es una, y los mensajes sueltos con menos de 30 minutos entre sí forman otra; se omiten los avisos automáticos (alguien entró al canal, cambió el tema…). Marca solo las que tienen información del proyecto: cada una se convierte en una nota con autores, horas (UTC), el enlace a Slack y las imágenes compartidas (hasta 5). La lista indica cuáles ya se importaron y cuáles siguieron después; volver a importar una trae la conversación completa otra vez. Hoy funciona con Slack (ver [Chat](#chat)); con otro chat, pega los mensajes en la bandeja.
 - **PDF:** sube un manual, una especificación o un documento de diseño (hasta 50 MB). La herramienta lo divide por capítulos usando los marcadores del PDF o, si no tiene, en bloques de páginas; los capítulos largos se parten (8 páginas por parte por defecto, ajustable). Puedes ver el texto de cada parte, elegir cuáles importar y cada una se convierte en una nota que se analiza en cola, citando el documento y las páginas. Al extraer el texto se quitan los encabezados y pies que se repiten y se unen las palabras cortadas con guion. Las páginas sin texto (escaneadas o solo con dibujos) se envían como imágenes, hasta 5 por parte (`PDF_MAX_SCANNED_PAGES`); para leerlas hace falta Claude o un modelo local con visión. La lista indica qué partes ya se importaron.
 - **Revisión de la documentación:** la página *Revisión* busca tres cosas en el espacio:
   - **Tickets actualizados:** páginas que mencionan un ticket de Jira (por ejemplo `SIM-103`) que cambió después de la última edición de la página. Con *Importar* el ticket se convierte en una nota.
@@ -164,6 +181,7 @@ Estructura:
 
 - `curator/confluence.py`: cliente de Confluence Cloud (API v2; v1 para adjuntos).
 - `curator/jira.py`: cliente de Jira Cloud (API v3) y conversión de descripciones y comentarios (formato ADF) a texto.
+- `curator/chat.py`: importación desde el chat (interfaz genérica y conector de Slack).
 - `curator/audit.py`: revisión de la documentación (tickets actualizados, contradicciones y páginas sin cambios).
 - `curator/pdf.py`: lectura de PDFs, capítulos por marcadores, limpieza del texto y conversión a imagen de las páginas sin texto.
 - `curator/storage.py`: divide las páginas en secciones por encabezados sobre el texto original, de modo que al reemplazar una sección el resto de la página no cambia. También valida el XHTML.
@@ -180,7 +198,7 @@ Estructura:
 
 - Trabaja con un solo espacio a la vez.
 - Las secciones se definen por encabezados (`h1` a `h6`). En páginas sin encabezados, la página entera es una sola sección.
-- No lee directamente Slack ni Teams: los mensajes del chat se pegan a mano.
+- Del chat solo se conecta con Slack; los mensajes de otros chats se pegan a mano. Del chat no hay revisión automática como la de Jira: las conversaciones se eligen a mano, para no llenar la bandeja de charla.
 - Volver a importar un ticket trae el ticket completo otra vez, no solo lo nuevo. Con la IA activada no suele duplicar nada, porque compara con lo ya publicado, pero el análisis tarda más.
 - De Jira solo trae imágenes adjuntas; los demás archivos (PDF, videos, logs) quedan fuera. Un PDF adjunto a un ticket se puede descargar y subir en la página PDF.
 - De los PDFs con texto no se extraen las figuras: los diagramas de una página con texto no llegan al análisis. Si una figura importa, súbela como imagen en una nota.
@@ -188,4 +206,4 @@ Estructura:
 
 ## Próximos pasos posibles
 
-- Importar desde el chat que usa el equipo.
+- Conector para el chat que usa el equipo.

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Chat · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Importar desde el chat</h1>
+{% if curator.chat is none %}
+<div class="card">
+	<p>El chat no está configurado. Hoy la herramienta se conecta con <strong>Slack</strong>; agrega el token en <a href="/setup#chat">Ajustes, paso «Chat»</a>.</p>
+	<p class="muted">Si el equipo usa otro chat, pega los mensajes en la <a href="/">Bandeja</a> con la fuente «Chat».</p>
+</div>
+{% else %}
+<form class="card" method="get" action="/chat">
+	<p class="muted">Conectado a {{ curator.chat.name }}. Los mensajes se agrupan en conversaciones: cada hilo es una, y los mensajes sueltos con menos de 30 minutos entre sí forman otra. Cada conversación elegida se convierte en una nota con autores, horas, enlace e imágenes compartidas.</p>
+	<div class="row">
+		<div>
+			<label for="channel">Canal</label>
+			<select id="channel" name="channel">
+				<option value="">Elige un canal…</option>
+				{% for c in channels %}<option value="{{ c.id }}" {% if c.id == channel %}selected{% endif %}>{{ '🔒 ' if c.private }}#{{ c.name }}</option>{% endfor %}
+			</select>
+			{% if not channels %}<p class="muted">La app no está en ningún canal. En Slack, escribe <code>/invite @nombre-de-la-app</code> en los canales que quieras importar.</p>{% endif %}
+		</div>
+		<div>
+			<label for="days">Últimos (días)</label>
+			<input id="days" name="days" type="number" min="1" max="90" value="{{ days }}">
+		</div>
+	</div>
+	<div class="actions"><button class="primary" type="submit">Ver conversaciones</button></div>
+</form>
+
+{% if channel and not error %}
+<form class="card" method="post" action="/chat/import" data-busy="Importando…">
+	<input type="hidden" name="channel" value="{{ channel }}">
+	<input type="hidden" name="days" value="{{ days }}">
+	{% if results %}
+	<h2>{{ results|length }} conversaciones</h2>
+	<table class="list">
+		<thead><tr><th><span class="visually-hidden">Elegir</span></th><th>Fecha (UTC)</th><th>Conversación</th><th>Mensajes</th><th>En Curator</th></tr></thead>
+		<tbody>
+		{% for r in results %}
+		{% set c = r.conversation %}
+		<tr>
+			<td><input type="checkbox" name="keys" value="{{ c.key }}" id="conv-{{ loop.index }}" aria-label="Importar la conversación del {{ c.start.strftime('%Y-%m-%d %H:%M') }}" {% if r.changed %}checked{% endif %}></td>
+			<td><label for="conv-{{ loop.index }}" class="inline">{{ c.start.strftime('%Y-%m-%d %H:%M') }}</label></td>
+			<td>
+				{{ c.preview }}{% if c.preview|length >= 240 %}…{% endif %}
+				<br><span class="muted">{{ 'Hilo' if c.thread else 'Mensajes' }} · {{ c.authors|join(', ') }}{% if c.link %} · <a href="{{ c.link }}" target="_blank" rel="noopener">abrir en {{ curator.chat.name }}</a>{% endif %}</span>
+			</td>
+			<td>{{ c.size }} {{ 'mensaje' if c.size == 1 else 'mensajes' }}</td>
+			<td>
+				{% if not r.last %}<span class="badge">Nueva</span>
+				{% elif r.changed %}<span class="badge warn">Siguió después de la nota <a href="/notes/{{ r.last.note_id }}">#{{ r.last.note_id }}</a></span>
+				{% else %}<span class="badge ok">Importada: <a href="/notes/{{ r.last.note_id }}">nota #{{ r.last.note_id }}</a></span>{% endif %}
+			</td>
+		</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+	<p class="muted">No hay nada marcado de entrada: elige solo las conversaciones con información del proyecto. Quedan marcadas las que siguieron después de importarse.</p>
+	<div class="actions"><button class="primary" type="submit">Importar y analizar las seleccionadas</button></div>
+	{% else %}
+	<p class="muted">No hay mensajes en ese canal en los últimos {{ days }} días.</p>
+	{% endif %}
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

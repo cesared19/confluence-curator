@@ -1,5 +1,9 @@
 # Cambios
 
+## Sin publicar
+
+- Importación desde el chat: página **Chat** que agrupa los mensajes de un canal en conversaciones (hilos y mensajes cercanos), indica cuáles ya se importaron o siguieron después, y crea una nota por conversación con autores, horas, enlace e imágenes. Primer conector: Slack, con el token de una app interna; se configura y se prueba en el asistente (paso «Chat»).
+
 ## 0.0.3-beta (2026-10-28)
 
 - Asistente de configuración en el navegador: aparece la primera vez y queda en **Ajustes**. Prueba la conexión con Confluence (y permite elegir el espacio de una lista), Jira, Claude y Ollama, y guarda todo sin editar archivos. Los cambios se aplican sin reiniciar.

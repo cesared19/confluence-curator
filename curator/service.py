@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from . import storage
 from .advisor import Advisor, AdvisorInput, Analysis, Candidate
 from .audit import Auditor
+from .chat import IMAGE_TYPES, conversation_text
 from .confluence import ConfluenceError
 from .db import Database, loads, now
 from .search import BM25, Document
@@ -41,6 +42,7 @@ class Curator:
         jira_max_images: int = 5,
         background: bool = True,
         pdf_max_scanned: int = 5,
+        chat=None,
     ):
         self.db = db
         self.advisor = advisor
@@ -50,6 +52,8 @@ class Curator:
         self.jira = jira
         self.jira_max_images = jira_max_images
         self.pdf_max_scanned = pdf_max_scanned
+        self.chat = chat
+        self.chat_cache: dict = {}
         self.background = background
         self.pending: queue.Queue = queue.Queue()
         self.worker: threading.Thread | None = None
@@ -58,7 +62,9 @@ class Curator:
         self.watcher: threading.Thread | None = None
         self.auditor = Auditor(self)
 
-    def reconfigure(self, advisor, confluence, space_key: str, candidates: int, jira, jira_max_images: int, pdf_max_scanned: int) -> None:
+    def reconfigure(
+        self, advisor, confluence, space_key: str, candidates: int, jira, jira_max_images: int, pdf_max_scanned: int, chat=None
+    ) -> None:
         """Aplica una configuración nueva sin reiniciar (lo usa el asistente de configuración)."""
         self.advisor = advisor
         self.confluence = confluence
@@ -67,6 +73,8 @@ class Curator:
         self.jira = jira
         self.jira_max_images = jira_max_images
         self.pdf_max_scanned = pdf_max_scanned
+        self.chat = chat
+        self.chat_cache = {}
 
     # Índice ---------------------------------------------------------------
 
@@ -495,6 +503,78 @@ class Curator:
         if self.watcher is None:
             self.watcher = threading.Thread(target=loop, name="curator-scheduler", daemon=True)
             self.watcher.start()
+
+    # Chat -------------------------------------------------------------------
+
+    def _require_chat(self):
+        if self.chat is None:
+            raise CuratorError("El chat no está configurado: agrega el token en Ajustes, paso «Chat».")
+        return self.chat
+
+    def chat_channels(self):
+        try:
+            return self._require_chat().channels()
+        except ConfluenceError as error:
+            raise CuratorError(str(error)) from error
+
+    def chat_conversations(self, channel_id: str, days: int) -> list[dict]:
+        """Conversaciones del canal en los últimos días, con su última importación y si siguieron después."""
+        if not 1 <= days <= 90:
+            raise CuratorError("El rango debe estar entre 1 y 90 días.")
+        channel = next((c for c in self.chat_channels() if c.id == channel_id), None)
+        if channel is None:
+            raise CuratorError("No se encontró el canal, o la app no está en él.")
+        try:
+            conversations = self.chat.conversations(channel, days)
+        except ConfluenceError as error:
+            raise CuratorError(str(error)) from error
+        self.chat_cache = {c.key: c for c in conversations}
+        results = []
+        for conversation in conversations:
+            last = self.db.one(
+                "SELECT * FROM chat_imports WHERE conversation_key = ? ORDER BY imported_at DESC, rowid DESC LIMIT 1",
+                (conversation.key,),
+            )
+            changed = bool(last) and float(conversation.last_ts or 0) > float(last["last_ts"] or 0)
+            results.append({"conversation": conversation, "last": last, "changed": changed})
+        return results
+
+    def import_chat(self, keys: list[str], channel_id: str, days: int) -> tuple[list[int], list[str]]:
+        """Crea una nota por conversación elegida, con sus imágenes, y la manda a analizar."""
+        chat = self._require_chat()
+        if any(key not in self.chat_cache for key in keys):
+            self.chat_conversations(channel_id, days)
+        note_ids, errors = [], []
+        for key in dict.fromkeys(keys):
+            conversation = self.chat_cache.get(key)
+            if conversation is None:
+                errors.append("Una conversación ya no está en el rango elegido.")
+                continue
+            try:
+                conversation = chat.complete(conversation)
+                images = []
+                for message in conversation.messages:
+                    for file in message.files:
+                        fits = file["mimetype"] in IMAGE_TYPES and file["size"] <= 10 * 1024 * 1024
+                        if fits and len(images) < self.jira_max_images:
+                            images.append((file["name"], file["mimetype"], chat.download(file)))
+            except ConfluenceError as error:
+                errors.append(str(error))
+                continue
+            note_id = self.create_note(
+                conversation_text(conversation, chat.name),
+                "Chat",
+                f"{chat.name} #{conversation.channel.name} {conversation.start:%Y-%m-%d}",
+                images,
+            )
+            self.db.execute(
+                "INSERT INTO chat_imports(conversation_key, last_ts, note_id, imported_at) VALUES (?, ?, ?, ?)",
+                (conversation.key, conversation.last_ts, note_id, now()),
+            )
+            note_ids.append(note_id)
+        for note_id in note_ids:
+            self.enqueue(note_id)
+        return note_ids, errors
 
     # PDFs -------------------------------------------------------------------
 

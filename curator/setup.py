@@ -132,6 +132,25 @@ def register(app: FastAPI, curator, settings, render, back, rebuild) -> None:
             return {"ok": False, "message": f"La API respondió {error.status_code}: {error.message}"}
         return {"ok": True, "message": f"API key correcta; modelo {name} disponible."}
 
+    @app.post("/setup/test/slack")
+    def test_slack(request: Request, token: str = Form("")):
+        if not allowed(request):
+            return JSONResponse({"ok": False, "message": "No permitido."}, status_code=403)
+        from .chat import ChatError, SlackSource
+
+        token = secret(token, settings.slack_token)
+        if not token:
+            return {"ok": False, "message": "Pega el token de Slack."}
+        source = SlackSource(token)
+        try:
+            who = source.check()
+            channels = source.channels()
+        except ChatError as error:
+            return {"ok": False, "message": str(error)}
+        if not channels:
+            return {"ok": True, "message": f"Conectado a {who}, pero todavía no ve ningún canal: invita la app con /invite."}
+        return {"ok": True, "message": f"Conectado a {who}: {len(channels)} canales disponibles."}
+
     @app.post("/setup/test/ollama")
     def test_ollama(request: Request, url: str = Form("")):
         if not allowed(request):
@@ -164,6 +183,8 @@ def register(app: FastAPI, curator, settings, render, back, rebuild) -> None:
         ollama_model: str = Form(""),
         app_user: str = Form(""),
         app_password: str = Form(""),
+        chat_source: str = Form(""),
+        slack_token: str = Form(""),
         remove_password: str = Form(""),
     ):
         if not allowed(request):
@@ -187,6 +208,9 @@ def register(app: FastAPI, curator, settings, render, back, rebuild) -> None:
                 JIRA_EMAIL=jira_email.strip(),
                 JIRA_API_TOKEN=secret(jira_api_token, settings.jira_api_token),
             )
+        values["SLACK_TOKEN"] = secret(slack_token, settings.slack_token) if chat_source == "slack" else ""
+        if chat_source == "slack" and not values["SLACK_TOKEN"]:
+            return back("/setup", error="Para usar Slack falta el token.")
         if advisor == "anthropic":
             values["ANTHROPIC_API_KEY"] = secret(anthropic_api_key, settings_key("ANTHROPIC_API_KEY"))
             if not values["ANTHROPIC_API_KEY"]:

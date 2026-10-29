@@ -34,11 +34,12 @@ def components(settings: Settings) -> dict:
     """Clientes de Confluence y Jira y el asesor según la configuración."""
     import os
 
-    jira = None
+    jira = chat = None
     if os.environ.get("CURATOR_DEMO") == "1":
-        from .demo import FakeConfluence, FakeJira
+        from .demo import FakeChat, FakeConfluence, FakeJira
 
         confluence, space_key, jira = FakeConfluence(), "DEMO", FakeJira()
+        chat = FakeChat()
     elif settings.confluence_configured:
         from .confluence import ConfluenceClient
 
@@ -50,6 +51,10 @@ def components(settings: Settings) -> dict:
         from .jira import JiraClient
 
         jira = JiraClient(settings.jira_base_url, settings.jira_email, settings.jira_api_token)
+    if chat is None and settings.slack_token:
+        from .chat import SlackSource
+
+        chat = SlackSource(settings.slack_token)
     if settings.advisor == "anthropic":
         advisor = AnthropicAdvisor(settings.anthropic_model, settings.anthropic_effort)
     elif settings.advisor == "ollama":
@@ -64,6 +69,7 @@ def components(settings: Settings) -> dict:
         jira=jira,
         jira_max_images=settings.jira_max_images,
         pdf_max_scanned=settings.pdf_max_scanned,
+        chat=chat,
     )
 
 
@@ -301,6 +307,34 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
         except CuratorError as error:
             return back("/jira", error=f"No se pudo revisar Jira: {error}")
         return back("/jira", message=f"Revisión de Jira: {result}")
+
+    @app.get("/chat", response_class=HTMLResponse)
+    def chat_page(request: Request, channel: str = "", days: int = 7, error: str = "", message: str = ""):
+        channels, results = [], []
+        if curator.chat is not None:
+            try:
+                channels = curator.chat_channels()
+                if channel:
+                    results = curator.chat_conversations(channel, days)
+            except CuratorError as failure:
+                error = str(failure)
+        return render(
+            request, "chat.html", channels=channels, channel=channel, days=days, results=results, error=error, message=message
+        )
+
+    @app.post("/chat/import")
+    def chat_import(keys: list[str] = Form(default_factory=list), channel: str = Form(""), days: int = Form(7)):
+        here = f"/chat?channel={quote(channel)}&days={days}"
+        if not keys:
+            return RedirectResponse(here + "&error=" + quote("Selecciona al menos una conversación."), status_code=303)
+        try:
+            note_ids, errors = curator.import_chat(keys, channel, days)
+        except CuratorError as error:
+            return RedirectResponse(here + "&error=" + quote(str(error)), status_code=303)
+        if len(note_ids) == 1 and not errors:
+            return back(f"/notes/{note_ids[0]}")
+        message = f"{len(note_ids)} conversaciones importadas; se están analizando de a una." if note_ids else ""
+        return back("/", error=" · ".join(errors), message=message)
 
     @app.get("/pdf", response_class=HTMLResponse)
     def pdf_list(request: Request, error: str = "", message: str = ""):

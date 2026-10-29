@@ -74,6 +74,12 @@ CREATE TABLE IF NOT EXISTS audit_pairs (
     checked_at TEXT NOT NULL,
     result TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_imports (
+    conversation_key TEXT NOT NULL,
+    last_ts TEXT NOT NULL,
+    note_id INTEGER NOT NULL REFERENCES notes(id),
+    imported_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS note_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     note_id INTEGER NOT NULL REFERENCES notes(id),

@@ -56,8 +56,38 @@
 		<div class="test-result" id="result-jira" role="status"></div>
 	</section>
 
+	<section class="card" id="chat">
+		<h2><span class="step">3</span> Chat <span class="muted">(opcional)</span></h2>
+		<p class="muted">Para importar conversaciones del chat del equipo. Hoy funciona con Slack; con otro chat, los mensajes se pegan en la bandeja.</p>
+		<label for="chat_source">Chat del equipo</label>
+		<select id="chat_source" name="chat_source">
+			<option value="" {% if not s.slack_token %}selected{% endif %}>Ninguno</option>
+			<option value="slack" {% if s.slack_token %}selected{% endif %}>Slack</option>
+		</select>
+		<div id="slack-fields" {% if not s.slack_token %}hidden{% endif %}>
+			<label for="slack_token">Token de Slack</label>
+			<input id="slack_token" name="slack_token" type="password" autocomplete="off" placeholder="{{ 'Guardado. Déjalo vacío para conservarlo' if s.slack_token else 'xoxp-… o xoxb-…' }}">
+			<details class="help">
+				<summary>¿Cómo consigo el token?</summary>
+				<ol>
+					<li>Abre <a href="https://api.slack.com/apps" target="_blank" rel="noopener">api.slack.com/apps</a>, pulsa <em>Create New App → From scratch</em>, ponle un nombre como «Confluence Curator» y elige el espacio de trabajo. Es una app interna, solo para ese espacio.</li>
+					<li>En <em>OAuth &amp; Permissions</em> agrega estos permisos: <code>channels:read</code>, <code>channels:history</code>, <code>groups:read</code>, <code>groups:history</code>, <code>users:read</code> y <code>files:read</code>.
+						<ul>
+							<li>Como <em>User Token Scopes</em>: la herramienta lee los canales en los que estás tú. Es lo más simple.</li>
+							<li>Como <em>Bot Token Scopes</em>: lee solo los canales a los que invites la app con <code>/invite @Confluence Curator</code>.</li>
+						</ul>
+					</li>
+					<li>Pulsa <em>Install to Workspace</em> (puede requerir la aprobación de quien administra Slack) y copia el token que empieza con <code>xoxp-</code> o <code>xoxb-</code>.</li>
+				</ol>
+				<p class="muted">La herramienta solo lee mensajes: no escribe en Slack.</p>
+			</details>
+			<div class="actions"><button type="button" data-test="slack">Probar Slack</button></div>
+			<div class="test-result" id="result-slack" role="status"></div>
+		</div>
+	</section>
+
 	<section class="card">
-		<h2><span class="step">3</span> Inteligencia artificial</h2>
+		<h2><span class="step">4</span> Inteligencia artificial</h2>
 		<p class="muted">Decide dónde va cada información y redacta los cambios. Puedes cambiarla cuando quieras.</p>
 		<label class="option"><input type="radio" name="advisor" value="mock" {% if s.advisor == 'mock' %}checked{% endif %}>
 			<span><strong>Sin IA, para probar.</strong> No envía datos a ningún servicio. Las propuestas son simples: agrega la nota a la sección más parecida.</span></label>
@@ -85,7 +115,7 @@
 	</section>
 
 	<section class="card">
-		<h2><span class="step">4</span> Acceso <span class="muted">(opcional)</span></h2>
+		<h2><span class="step">5</span> Acceso <span class="muted">(opcional)</span></h2>
 		<p class="muted">Si solo la usas en tu computadora no hace falta. Si la dejas en un servidor para el equipo, ponle usuario y contraseña: guarda el token de Confluence y puede publicar cambios.</p>
 		<div class="row">
 			<div>
@@ -109,6 +139,9 @@
 <script>
 	const form = document.getElementById('setup')
 	const field = (name) => form.elements[name]
+
+	const chatSource = document.getElementById('chat_source')
+	chatSource.addEventListener('change', () => (document.getElementById('slack-fields').hidden = chatSource.value !== 'slack'))
 
 	const sameJira = document.getElementById('same_jira')
 	sameJira.addEventListener('change', () => (document.getElementById('jira-fields').hidden = sameJira.checked))
@@ -140,6 +173,7 @@
 				? { base_url: field('confluence_base_url').value, email: field('confluence_email').value, token: field('confluence_api_token').value }
 				: { base_url: field('jira_base_url').value, email: field('jira_email').value, token: field('jira_api_token').value },
 		anthropic: () => ({ api_key: field('anthropic_api_key').value }),
+		slack: () => ({ token: field('slack_token').value }),
 		ollama: () => ({ url: field('ollama_url').value }),
 	}
 
