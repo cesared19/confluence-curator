@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% block head %}{% if notes|selectattr('analyzing')|list %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block content %}
 <h1>Nueva información</h1>
 {% if pages == 0 %}
@@ -45,6 +44,7 @@
 			<td>{{ n.source_type }}{% if n.source_ref %} · {{ n.source_ref }}{% endif %}</td>
 			<td>
 				{% if n.analyzing %}<span class="badge">Analizando…</span>
+				{% elif n.error and n.error.startswith('Análisis detenido') %}<span class="badge warn">Detenida</span>
 				{% elif n.error %}<span class="badge danger">Error</span>
 				{% elif n.pending %}<span class="badge warn">{{ n.pending }} por revisar</span>
 				{% elif n.applied %}<span class="badge ok">Publicada</span>

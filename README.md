@@ -156,6 +156,8 @@ La herramienta solo lee Jira: no cambia tickets ni agrega comentarios.
   - **Páginas sin cambios:** las que no se editan hace más de 180 días (ajustable; 0 lo desactiva).
 
   Se ejecuta con *Revisar ahora* o sola cada N horas (24 por defecto), empezando por sincronizar el índice. Un hallazgo se resuelve solo cuando cambia alguna de sus páginas y se reabre si la siguiente revisión lo vuelve a encontrar; los descartados no vuelven mientras no cambie lo que los originó. Cada comparación es una consulta a la IA: por revisión se hacen como mucho 30 nuevas (ajustable) y las secciones que no cambiaron no se vuelven a comparar, así que las primeras revisiones de un espacio grande avanzan por partes. Solo se comparan las secciones más parecidas entre sí, no todas contra todas, así que puede escaparse alguna contradicción.
+- **Actividad:** el bloque de abajo a la derecha muestra en vivo qué está haciendo la herramienta (analizar una nota, importar tickets o conversaciones con su avance, revisar la documentación, sincronizar, publicar), cuántas notas esperan en cola y los últimos resultados con enlaces. Se abre solo cuando algo empieza, y la página se actualiza sola cuando termina algo suyo (si estás escribiendo, ofrece recargar en vez de hacerlo). Las importaciones, la sincronización y *Revisar ahora* corren en segundo plano: puedes seguir usando la herramienta mientras tanto.
+- **Detener:** el botón del bloque Actividad cancela lo que está en curso y vacía la cola de análisis. Si la IA estaba respondiendo, su respuesta se descarta y la nota queda como *Detenida* (con *Analizar de nuevo* se retoma). Lo ya importado se conserva. Además pausa las revisiones automáticas de Jira y de la documentación hasta que pulses *Reanudar*. Lo que pidas después funciona con normalidad. Publicar en Confluence no se detiene a medias: es un solo paso de pocos segundos.
 - **Revisar:** en cada propuesta revisa las diferencias y la vista previa. *Editar contenido* permite corregir el XHTML antes de publicar; `[[IMAGEN:n]]` coloca la imagen n de la nota.
 - **¿No es el lugar correcto?** Elige una alternativa sugerida, una página destino o escribe una indicación ("es una decisión del proyecto, no del producto") y vuelve a analizar.
 - **Buscar:** consulta rápida de qué dice hoy la documentación sobre un tema.
@@ -189,6 +191,7 @@ Estructura:
 - `curator/advisor.py`: asesores (Claude y Ollama con salida estructurada, y modo sin IA).
 - `curator/service.py`: flujo de notas, propuestas y publicación, importación de Jira y cola de análisis en segundo plano.
 - `curator/web.py` y `curator/templates/`: interfaz web (FastAPI + Jinja).
+- `curator/activity.py`: registro de las tareas en curso, sus avances y la cancelación con Detener.
 - `curator/setup.py`: asistente de configuración (pruebas de conexión y guardado en `.env`).
 - `iniciar-windows.bat`, `iniciar-mac.command`, `iniciar-linux.sh` y `scripts/iniciar.sh`: lanzadores de doble clic.
 - `curator/demo.py`: Confluence y Jira simulados.

@@ -154,7 +154,7 @@ def test_pdf_web_flow():
     assert "Páginas 1–2" in blocks.text
 
     one = client.post("/pdf/1/import", data={"keys": ["5-6"], "mode": "chapters", "max_pages": "8"})
-    assert one.url.path.startswith("/notes/") and "Aprobar y publicar" in one.text
+    assert one.url.path == "/" and "Importando 1 parte de «Manual X-200 v2.3»" in one.text
     assert "Importada" in client.get("/pdf/1").text
     assert "Manual X-200 v2.3" in client.get("/pdf").text
 

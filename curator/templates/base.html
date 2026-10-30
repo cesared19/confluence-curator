@@ -34,6 +34,151 @@
 	{% block content %}{% endblock %}
 </main>
 <footer class="muted">Confluence Curator {{ version }}</footer>
+{% set act = activity_state() %}
+<aside id="activity" class="activity{% if act.busy %} busy{% endif %}" aria-label="Actividad">
+	<button type="button" class="activity-toggle" aria-expanded="false" aria-controls="activity-body">
+		<span class="activity-dot" aria-hidden="true"></span>
+		<span id="activity-summary">{% if act.busy %}Trabajando…{% elif act.paused %}Revisiones automáticas en pausa{% else %}Sin actividad{% endif %}</span>
+	</button>
+	<div id="activity-body" hidden>
+		<ul id="activity-tasks" class="activity-tasks"></ul>
+		<p id="activity-queue" class="muted" hidden></p>
+		<div class="actions">
+			<form method="post" action="/activity/stop" id="activity-stop"{% if not act.busy %} hidden{% endif %}>
+				<button type="submit" class="danger">Detener</button>
+			</form>
+			<form method="post" action="/activity/resume" id="activity-resume"{% if not act.paused %} hidden{% endif %}>
+				<button type="submit">Reanudar revisiones automáticas</button>
+			</form>
+		</div>
+		<p class="muted activity-help" id="activity-help">Detener cancela lo que está en curso y lo que espera en cola, y pausa las revisiones automáticas. Lo que pidas después funciona con normalidad.</p>
+		<h3>Últimos resultados</h3>
+		<ul id="activity-events" class="activity-events"><li class="muted">Todavía nada.</li></ul>
+		<p id="activity-reload" hidden><a href="">Hay resultados nuevos para esta página: recargar</a></p>
+	</div>
+</aside>
+<script>
+	// Bloque «Actividad»: consulta /activity y muestra en vivo lo que hace la herramienta.
+	;(() => {
+		const box = document.getElementById('activity')
+		const toggle = box.querySelector('.activity-toggle')
+		const body = document.getElementById('activity-body')
+		const $ = (id) => document.getElementById(id)
+		const seen = new Set()
+		let firstLoad = true
+		let lastEvent = null
+		let dirty = false // si el usuario escribió en un formulario, no se recarga la página sola
+		document.addEventListener('input', (e) => { if (!box.contains(e.target)) dirty = true })
+
+		const open = (value) => {
+			body.hidden = !value
+			toggle.setAttribute('aria-expanded', String(value))
+		}
+		toggle.addEventListener('click', () => open(body.hidden))
+
+		const ago = (iso) => {
+			const seconds = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000))
+			return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min`
+		}
+		const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+		const item = (text, link, cls) => {
+			const li = document.createElement('li')
+			if (cls) li.className = cls
+			if (link) {
+				const a = document.createElement('a')
+				a.href = link
+				a.textContent = text
+				li.append(a)
+			} else li.textContent = text
+			return li
+		}
+		const samePage = (link) => link && new URL(link, location.href).pathname === location.pathname
+
+		const render = (state) => {
+			const queued = state.queued.length
+			let summary = 'Sin actividad'
+			if (state.tasks.length) {
+				summary = state.tasks[0].label + (state.tasks.length > 1 ? ` y ${state.tasks.length - 1} más` : '')
+			} else if (queued) summary = `${queued} en cola`
+			else if (state.paused) summary = 'Revisiones automáticas en pausa'
+			$('activity-summary').textContent = summary
+			box.classList.toggle('busy', state.busy)
+
+			const tasks = $('activity-tasks')
+			tasks.replaceChildren(
+				...state.tasks.map((t) => {
+					const li = item(t.label, t.link)
+					const meta = document.createElement('div')
+					meta.className = 'muted'
+					const progress = t.total ? ` · ${t.done} de ${t.total}` : ''
+					meta.textContent = `${t.detail || 'En curso'}${progress} · hace ${ago(t.started)}`
+					li.append(meta)
+					if (t.total) {
+						const bar = document.createElement('progress')
+						bar.max = t.total
+						bar.value = t.done
+						li.append(bar)
+					}
+					return li
+				})
+			)
+			$('activity-queue').hidden = !queued
+			$('activity-queue').textContent = queued
+				? `${queued} ${queued === 1 ? 'nota espera' : 'notas esperan'} su turno para analizarse: ${state.queued.map((id) => '#' + id).join(', ')}`
+				: ''
+			$('activity-stop').hidden = !state.busy
+			$('activity-resume').hidden = !state.paused
+
+			const events = $('activity-events')
+			if (state.events.length) {
+				events.replaceChildren(...state.events.map((e) => item(`${clock(e.time)} · ${e.text}`, e.link, e.level)))
+			}
+
+			// Se abre solo cuando empieza algo nuevo.
+			const fresh = state.tasks.some((t) => !seen.has(t.id))
+			state.tasks.forEach((t) => seen.add(t.id))
+			if (fresh || (firstLoad && state.busy)) open(true)
+
+			// Si terminó algo de esta página, se recarga para mostrarlo (salvo que estés escribiendo).
+			const newest = state.events[0]
+			if (!firstLoad && newest && lastEvent !== null && newest.time + newest.text !== lastEvent) {
+				const relevant = state.events.filter((e) => e.time + e.text !== lastEvent).some((e) => samePage(e.link) || location.pathname === '/')
+				if (relevant) {
+					if (dirty) $('activity-reload').hidden = false
+					else location.reload()
+				}
+			}
+			lastEvent = newest ? newest.time + newest.text : ''
+			firstLoad = false
+		}
+
+		let timer
+		const poll = async () => {
+			clearTimeout(timer)
+			let busy = false
+			try {
+				const response = await fetch('/activity', { headers: { accept: 'application/json' } })
+				const state = await response.json()
+				render(state)
+				busy = state.busy
+			} catch (error) {
+				$('activity-summary').textContent = 'Sin conexión con la herramienta'
+			}
+			timer = setTimeout(poll, busy || !body.hidden ? 2000 : 10000)
+		}
+
+		for (const id of ['activity-stop', 'activity-resume']) {
+			$(id).addEventListener('submit', async (event) => {
+				event.preventDefault()
+				const response = await fetch($(id).action, { method: 'POST', headers: { accept: 'application/json' } })
+				const data = await response.json()
+				$('activity-help').textContent = data.message
+				poll()
+			})
+		}
+		poll()
+	})()
+</script>
 <script>
 	// Evita envíos dobles y avisa que el análisis puede tardar.
 	document.querySelectorAll('form[data-busy]').forEach((form) => {

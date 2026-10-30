@@ -88,6 +88,20 @@ def build_curator(settings: Settings) -> Curator:
     return curator
 
 
+def plural(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
+def imported(count: int, one: str, many: str, errors: list[str], feminine: bool = False) -> str:
+    """Resultado de una importación para la actividad."""
+    participle = ("importada" if feminine else "importado") + ("" if count == 1 else "s")
+    text = f"{plural(count, one, many)} {participle}"
+    text = text[0].upper() + text[1:] + ("." if not count else "; se analiza en cola." if count == 1 else "; se analizan en cola.")
+    if errors:
+        text += " Con problemas: " + " · ".join(errors)
+    return text
+
+
 def when(value: str) -> str:
     """Fecha ISO guardada en UTC, en formato corto."""
     try:
@@ -124,6 +138,14 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.globals.update(ACTIONS=ACTIONS, curator=curator, settings=settings, loads=loads, version=__version__)
     templates.env.filters["when"] = when
+
+    def activity_state() -> dict:
+        state = curator.activity.snapshot()
+        state.update(queued=curator.queued(), paused=curator.paused)
+        state["busy"] = bool(state["tasks"] or state["queued"])
+        return state
+
+    templates.env.globals["activity_state"] = activity_state
 
     @app.middleware("http")
     async def basic_auth(request: Request, call_next):
@@ -283,14 +305,15 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
     def jira_import(keys: list[str] = Form(default_factory=list)):
         if not keys:
             return back("/jira", error="Selecciona al menos un ticket.")
-        try:
-            note_ids, errors = curator.import_issues(keys)
-        except CuratorError as error:
-            return back("/jira", error=str(error))
-        if len(note_ids) == 1 and not errors:
-            return back(f"/notes/{note_ids[0]}")
-        message = f"{len(note_ids)} tickets importados; se están analizando de a uno." if note_ids else ""
-        return back("/", error=" · ".join(errors), message=message)
+        if curator.jira is None:
+            return back("/jira", error="Jira no está configurado.")
+
+        def work(task):
+            note_ids, errors = curator.import_issues(keys, task)
+            return imported(len(note_ids), "ticket", "tickets", errors)
+
+        curator.start_job("import", f"Importando {plural(len(keys), 'ticket', 'tickets')} de Jira", work)
+        return back("/", message=f"Importando {plural(len(keys), 'ticket', 'tickets')} de Jira. El avance se ve en el bloque «Actividad».")
 
     @app.post("/jira/watch")
     def jira_watch(jql: str = Form(""), interval: int = Form(60), enabled: str = Form("")):
@@ -302,11 +325,10 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
 
     @app.post("/jira/watch/run")
     def jira_watch_run():
-        try:
-            result = curator.run_watch()
-        except CuratorError as error:
-            return back("/jira", error=f"No se pudo revisar Jira: {error}")
-        return back("/jira", message=f"Revisión de Jira: {result}")
+        curator.start_job(
+            "watch", "Revisión de Jira", lambda task: "Revisión de Jira: " + curator.run_watch(task), "/jira#automatica"
+        )
+        return back("/jira", message="Revisando Jira. El avance se ve en el bloque «Actividad».")
 
     @app.get("/chat", response_class=HTMLResponse)
     def chat_page(request: Request, channel: str = "", days: int = 7, error: str = "", message: str = ""):
@@ -327,14 +349,16 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
         here = f"/chat?channel={quote(channel)}&days={days}"
         if not keys:
             return RedirectResponse(here + "&error=" + quote("Selecciona al menos una conversación."), status_code=303)
-        try:
-            note_ids, errors = curator.import_chat(keys, channel, days)
-        except CuratorError as error:
-            return RedirectResponse(here + "&error=" + quote(str(error)), status_code=303)
-        if len(note_ids) == 1 and not errors:
-            return back(f"/notes/{note_ids[0]}")
-        message = f"{len(note_ids)} conversaciones importadas; se están analizando de a una." if note_ids else ""
-        return back("/", error=" · ".join(errors), message=message)
+        if curator.chat is None:
+            return RedirectResponse(here + "&error=" + quote("El chat no está configurado."), status_code=303)
+
+        def work(task):
+            note_ids, errors = curator.import_chat(keys, channel, days, task)
+            return imported(len(note_ids), "conversación", "conversaciones", errors, feminine=True)
+
+        label = f"Importando {plural(len(keys), 'conversación', 'conversaciones')} del chat"
+        curator.start_job("import", label, work)
+        return back("/", message=f"{label}. El avance se ve en el bloque «Actividad».")
 
     @app.get("/pdf", response_class=HTMLResponse)
     def pdf_list(request: Request, error: str = "", message: str = ""):
@@ -385,12 +409,16 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
         if not keys:
             return back(f"/pdf/{document_id}", error="Selecciona al menos una parte.")
         try:
-            note_ids = curator.import_pdf_chunks(document_id, keys, mode, max_pages)
+            title = curator.pdf_document(document_id)["title"]
         except CuratorError as error:
-            return back(f"/pdf/{document_id}", error=str(error))
-        if len(note_ids) == 1:
-            return back(f"/notes/{note_ids[0]}")
-        return back("/", message=f"{len(note_ids)} partes del PDF importadas; se están analizando de a una.")
+            return back("/pdf", error=str(error))
+
+        def work(task):
+            return imported(len(curator.import_pdf_chunks(document_id, keys, mode, max_pages, task)), "parte", "partes", [], feminine=True)
+
+        label = f"Importando {plural(len(keys), 'parte', 'partes')} de «{title}»"
+        curator.start_job("import", label, work, f"/pdf/{document_id}")
+        return back("/", message=f"{label}. El avance se ve en el bloque «Actividad».")
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit_page(request: Request, status: str = "open", error: str = "", message: str = ""):
@@ -464,11 +492,28 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
 
     @app.post("/sync")
     def sync():
-        try:
-            count = curator.sync()
-        except Exception as error:
-            return back("/index", error=f"No se pudo sincronizar: {error}")
-        return back("/index", message=f"Índice actualizado: {count} páginas.")
+        if curator.confluence is None:
+            return back("/index", error="Confluence no está configurado.")
+        curator.start_job("sync", "Sincronizando el índice", lambda task: f"Índice actualizado: {curator.sync()} páginas.", "/index")
+        return back("/index", message="Sincronizando el índice. El avance se ve en el bloque «Actividad».")
+
+    @app.get("/activity")
+    def activity():
+        return activity_state()
+
+    @app.post("/activity/stop")
+    def activity_stop(request: Request):
+        message = curator.stop()
+        if "application/json" in request.headers.get("accept", ""):
+            return {"message": message}
+        return back(request.headers.get("referer", "/").split("?")[0] or "/", message=message)
+
+    @app.post("/activity/resume")
+    def activity_resume(request: Request):
+        curator.resume()
+        if "application/json" in request.headers.get("accept", ""):
+            return {"message": "Revisiones automáticas reanudadas."}
+        return back(request.headers.get("referer", "/").split("?")[0] or "/", message="Revisiones automáticas reanudadas.")
 
     @app.get("/search", response_class=HTMLResponse)
     def search(request: Request, q: str = ""):

@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Nota {{ note.id }} · Confluence Curator{% endblock %}
-{% block head %}{% if note.analyzing %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
 {% block content %}
 <h1>Nota {{ note.id }}{% if note.summary %}: {{ note.summary }}{% endif %}</h1>
 

@@ -207,7 +207,8 @@ def test_chat_web_flow():
     assert "3 conversaciones" in listing.text and "abrir en Slack" in listing.text
     key = curator.chat_conversations("C1", 7)[0]["conversation"].key
     imported = client.post("/chat/import", data={"keys": [key], "channel": "C1", "days": "7"})
-    assert imported.url.path.startswith("/notes/") and "Aprobar y publicar" in imported.text
+    assert imported.url.path == "/" and "Importando 1 conversación del chat" in imported.text
+    assert "1 conversación importada; se analiza en cola." in [e["text"] for e in client.get("/activity").json()["events"]]
     assert "Importada" in client.get("/chat", params={"channel": "C1", "days": 7}).text
     assert "Selecciona al menos" in client.post("/chat/import", data={"channel": "C1", "days": "7"}).text
 

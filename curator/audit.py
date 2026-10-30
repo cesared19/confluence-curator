@@ -98,28 +98,10 @@ class Auditor:
         if not self.lock.acquire(blocking=False):
             return "Ya hay una revisión en curso."
         try:
-            settings = self.settings()
-            if self.curator.confluence is not None:
-                self.curator.sync()
-            pages = {p.id: p for p in self.curator.pages()}
-            self._resolve_changed(pages)
-            found: list[str] = []
-            notes = []
-            if self.curator.jira is not None:
-                found += self._tickets(pages, notes)
-            if settings["stale_days"] > 0:
-                found += self._stale(pages, settings["stale_days"])
-            compared, cached = 0, 0
-            if getattr(self.curator.advisor, "can_compare", False) and settings["max_pairs"] > 0:
-                ids, compared, cached = self._contradictions(pages, settings["max_pairs"])
-                found += ids
-            else:
-                notes.append("las contradicciones necesitan IA")
-            open_count = self.db.one("SELECT COUNT(*) AS n FROM audit_findings WHERE status = 'open'")["n"]
-            parts = [f"{open_count} hallazgos abiertos", f"{len(pages)} páginas revisadas"]
-            if compared or cached:
-                parts.append(f"{compared} comparaciones nuevas" + (f", {cached} ya revisadas" if cached else ""))
-            result = "; ".join(parts + notes) + "."
+            result = "Revisión detenida antes de terminar."
+            with self.curator.activity.task("audit", "Revisión de la documentación", "/audit") as task:
+                result = self._run(task)
+                task.result = f"Revisión de la documentación: {result}"
             self.db.set_meta("audit_last_result", result)
             self.db.set_meta("audit_last_error", "")
             return result
@@ -129,6 +111,32 @@ class Auditor:
         finally:
             self.db.set_meta("audit_last_run", now())
             self.lock.release()
+
+    def _run(self, task) -> str:
+        settings = self.settings()
+        if self.curator.confluence is not None:
+            task.update(detail="Sincronizando el índice")
+            self.curator.sync()
+        task.check()
+        pages = {p.id: p for p in self.curator.pages()}
+        self._resolve_changed(pages)
+        notes = []
+        if self.curator.jira is not None:
+            task.update(detail="Buscando tickets de Jira mencionados")
+            self._tickets(pages, notes)
+            task.check()
+        if settings["stale_days"] > 0:
+            self._stale(pages, settings["stale_days"])
+        compared, cached = 0, 0
+        if getattr(self.curator.advisor, "can_compare", False) and settings["max_pairs"] > 0:
+            _, compared, cached = self._contradictions(pages, settings["max_pairs"], task)
+        else:
+            notes.append("las contradicciones necesitan IA")
+        open_count = self.db.one("SELECT COUNT(*) AS n FROM audit_findings WHERE status = 'open'")["n"]
+        parts = [f"{open_count} hallazgos abiertos", f"{len(pages)} páginas revisadas"]
+        if compared or cached:
+            parts.append(f"{compared} comparaciones nuevas" + (f", {cached} ya revisadas" if cached else ""))
+        return "; ".join(parts + notes) + "."
 
     def _resolve_changed(self, pages: dict) -> None:
         """Un hallazgo abierto se resuelve cuando su página (o la otra página) cambió o ya no existe."""
@@ -252,7 +260,7 @@ class Auditor:
             )
         return found
 
-    def _contradictions(self, pages: dict, budget: int) -> tuple[list[str], int, int]:
+    def _contradictions(self, pages: dict, budget: int, task=None) -> tuple[list[str], int, int]:
         sections = {}
         documents = []
         for page in pages.values():
@@ -278,6 +286,9 @@ class Auditor:
                 result = ContradictionCheck.model_validate_json(row["result"])
                 cached += 1
             elif compared < budget:
+                if task:
+                    task.check()
+                    task.update(detail="Comparando secciones parecidas", done=compared, total=budget)
                 result = self.curator.advisor.compare(
                     SectionRef(page_a.title, section_a.heading, section_a.storage, page_a.updated),
                     SectionRef(page_b.title, section_b.heading, section_b.storage, page_b.updated),

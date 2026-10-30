@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from . import storage
+from .activity import Activity, Cancelled, Task
 from .advisor import Advisor, AdvisorInput, Analysis, Candidate
 from .audit import Auditor
 from .chat import IMAGE_TYPES, conversation_text
@@ -60,6 +61,7 @@ class Curator:
         self.worker_lock = threading.Lock()
         self.watch_lock = threading.Lock()
         self.watcher: threading.Thread | None = None
+        self.activity = Activity()
         self.auditor = Auditor(self)
 
     def reconfigure(
@@ -168,7 +170,9 @@ class Curator:
     def note_images(self, note_id: int):
         return self.db.all("SELECT * FROM note_images WHERE note_id = ? ORDER BY idx", (note_id,))
 
-    def analyze(self, note_id: int, hint: str = "", target_page: str = "", target_section: int = -1) -> None:
+    def analyze(
+        self, note_id: int, hint: str = "", target_page: str = "", target_section: int = -1, task: Task | None = None
+    ) -> None:
         note = self.note(note_id)
         source = " ".join(x for x in [note["source_type"], note["source_ref"]] if x)
         candidates = self.search(f"{note['text']} {hint}")
@@ -191,21 +195,29 @@ class Curator:
             page_tree=self.page_tree(),
             hint=hint,
         )
-        self.db.execute("UPDATE proposals SET status = 'superseded' WHERE note_id = ? AND status = 'pending'", (note_id,))
+        if task:
+            task.check()
         try:
             analysis = self.advisor.analyze(data)
         except Exception as error:  # el error se muestra en la página de la nota
             self.db.execute("UPDATE notes SET error = ? WHERE id = ?", (f"No se pudo analizar: {error}", note_id))
             return
+        if task:
+            task.check()  # si se detuvo mientras la IA respondía, la respuesta se descarta
+        self.db.execute("UPDATE proposals SET status = 'superseded' WHERE note_id = ? AND status = 'pending'", (note_id,))
         self._store(note_id, analysis)
 
-    def enqueue(self, note_id: int, **options) -> None:
-        """Analiza la nota en segundo plano, de a una por vez, para no bloquear la interfaz."""
+    def enqueue(self, note_id: int, generation: int | None = None, **options) -> None:
+        """Analiza la nota en segundo plano, de a una por vez, para no bloquear la interfaz.
+
+        generation es la de la tarea que la importó: si el usuario detuvo esa tarea, el análisis se descarta.
+        """
+        generation = self.activity.generation if generation is None else generation
         self.db.execute("UPDATE notes SET analyzing = 1, error = '' WHERE id = ?", (note_id,))
         if not self.background:
-            self._run(note_id, options)
+            self._run(note_id, options, generation)
             return
-        self.pending.put((note_id, options))
+        self.pending.put((note_id, options, generation))
         with self.worker_lock:
             if self.worker is None or not self.worker.is_alive():
                 self.worker = threading.Thread(target=self._work, name="curator-analysis", daemon=True)
@@ -221,19 +233,90 @@ class Curator:
 
     def _work(self) -> None:
         while True:
-            note_id, options = self.pending.get()
+            note_id, options, generation = self.pending.get()
             try:
-                self._run(note_id, options)
+                self._run(note_id, options, generation)
             finally:
                 self.pending.task_done()
 
-    def _run(self, note_id: int, options: dict) -> None:
+    def _run(self, note_id: int, options: dict, generation: int) -> None:
+        link = f"/notes/{note_id}"
+        task = None
         try:
-            self.analyze(note_id, **options)
+            note = self.note(note_id)
+            with self.activity.task("analysis", f"Analizando la nota #{note_id}", link, generation) as task:
+                task.update(detail=" · ".join(x for x in [note["source_type"], note["source_ref"]] if x))
+                self.analyze(note_id, task=task, **options)
+                error = self.note(note_id)["error"]
+                count = len(self.proposals(note_id))
+                if error:
+                    task.result = f"Nota #{note_id}: {error}"
+                else:
+                    task.result = f"Nota #{note_id} analizada: " + (
+                        f"{count} {'propuesta' if count == 1 else 'propuestas'} por revisar" if count else "no hace falta cambiar nada"
+                    )
+            if task is None or task.stopped:
+                self.db.execute(
+                    "UPDATE notes SET error = ? WHERE id = ?",
+                    ("Análisis detenido. Usa «Analizar de nuevo» cuando quieras retomarlo.", note_id),
+                )
         except Exception as error:
             self.db.execute("UPDATE notes SET error = ? WHERE id = ?", (f"No se pudo analizar: {error}", note_id))
         finally:
             self.db.execute("UPDATE notes SET analyzing = 0 WHERE id = ?", (note_id,))
+
+    # Detener y tareas en segundo plano ----------------------------------------
+
+    @property
+    def paused(self) -> bool:
+        return self.db.get_meta("paused") == "1"
+
+    def stop(self) -> str:
+        """Detiene lo que está en curso, vacía la cola de análisis y pausa las tareas automáticas."""
+        running = self.activity.stop()
+        drained = 0
+        while True:
+            try:
+                note_id, _, _ = self.pending.get_nowait()
+            except queue.Empty:
+                break
+            self.db.execute(
+                "UPDATE notes SET analyzing = 0, error = ? WHERE id = ?",
+                ("Análisis detenido. Usa «Analizar de nuevo» cuando quieras retomarlo.", note_id),
+            )
+            self.pending.task_done()
+            drained += 1
+        self.db.set_meta("paused", "1")
+        parts = [f"{running} {'tarea detenida' if running == 1 else 'tareas detenidas'}"]
+        if drained:
+            parts.append(f"{drained} {'análisis en cola cancelado' if drained == 1 else 'análisis en cola cancelados'}")
+        message = "Detenido: " + ", ".join(parts) + ". Las revisiones automáticas quedan en pausa."
+        self.activity.event(message, "warn")
+        return message
+
+    def resume(self) -> None:
+        self.db.set_meta("paused", "")
+        self.activity.event("Revisiones automáticas reanudadas.")
+
+    def start_job(self, kind: str, label: str, work, link: str = "") -> None:
+        """Ejecuta work(task) en segundo plano como una tarea visible y detenible; lo que devuelve es el resultado."""
+        generation = self.activity.generation
+
+        def run() -> None:
+            try:
+                with self.activity.task(kind, label, link, generation) as task:
+                    task.result = work(task) or ""
+            except Exception:
+                pass  # el error ya quedó registrado en la actividad
+
+        if not self.background:
+            run()
+            return
+        threading.Thread(target=run, name=f"curator-{kind}", daemon=True).start()
+
+    def queued(self) -> list[int]:
+        with self.pending.mutex:
+            return [item[0] for item in self.pending.queue]
 
     def _store(self, note_id: int, analysis: Analysis) -> None:
         self.db.execute(
@@ -301,6 +384,17 @@ class Curator:
         )
 
     def apply(self, proposal_id: int, content: str, new_title: str = "") -> str:
+        """Publica la propuesta; queda en la actividad (no se puede detener a medias: es un solo paso)."""
+        proposal = self.proposal(proposal_id)
+        page = self.page(proposal["page_id"]) if proposal["page_id"] else None
+        title = (new_title or proposal["new_title"]) if proposal["action"] == "create_page" else (page.title if page else "")
+        with self.activity.task("publish", f"Publicando en «{title}»", f"/notes/{proposal['note_id']}") as task:
+            url = self._apply(proposal_id, content, new_title)
+            task.result = f"Publicado en «{title}»: {proposal['summary']}"
+            task.result_link = url
+        return url
+
+    def _apply(self, proposal_id: int, content: str, new_title: str = "") -> str:
         proposal = self.proposal(proposal_id)
         if proposal["status"] != "pending":
             raise CuratorError("Esta propuesta ya no está pendiente.")
@@ -384,11 +478,15 @@ class Curator:
             results.append({"issue": issue, "last": last, "changed": changed})
         return results
 
-    def import_issues(self, keys: list[str]) -> tuple[list[int], list[str]]:
+    def import_issues(self, keys: list[str], task: Task | None = None) -> tuple[list[int], list[str]]:
         """Crea una nota por ticket (descripción, comentarios e imágenes) y la manda a analizar."""
         jira = self._require_jira()
         note_ids, errors = [], []
-        for key in dict.fromkeys(keys):
+        keys = list(dict.fromkeys(keys))
+        for index, key in enumerate(keys):
+            if task:
+                task.check()
+                task.update(detail=f"Trayendo {key}", done=index, total=len(keys))
             try:
                 issue = jira.issue(key, self.jira_max_images, 10 * 1024 * 1024)
             except ConfluenceError as error:
@@ -400,8 +498,7 @@ class Curator:
                 (issue.key, issue.updated, note_id, now()),
             )
             note_ids.append(note_id)
-        for note_id in note_ids:
-            self.enqueue(note_id)
+            self.enqueue(note_id, generation=task.generation if task else None)
         return note_ids, errors
 
     # Revisión automática de Jira -------------------------------------------
@@ -439,7 +536,7 @@ class Curator:
         self.db.set_meta("watch_interval", str(interval))
         self.db.set_meta("watch_enabled", "1" if enabled else "")
 
-    def run_watch(self) -> str:
+    def run_watch(self, task: Task | None = None) -> str:
         """Importa los tickets de la consulta guardada que son nuevos o cambiaron desde su última importación."""
         if not self.watch_lock.acquire(blocking=False):
             return "Ya hay una revisión en curso."
@@ -457,7 +554,7 @@ class Curator:
                 for r in self._annotate(issues)
                 if r["changed"] or (not r["last"] and _jira_time(r["issue"].updated) >= since)
             ]
-            note_ids, errors = self.import_issues(due[: self.WATCH_BATCH]) if due else ([], [])
+            note_ids, errors = self.import_issues(due[: self.WATCH_BATCH], task) if due else ([], [])
             pending = len(due) - self.WATCH_BATCH
             parts = [f"{len(note_ids)} tickets importados" if note_ids else "sin tickets nuevos ni cambios"]
             if pending > 0:
@@ -466,6 +563,9 @@ class Curator:
             self.db.set_meta("watch_last_result", result)
             self.db.set_meta("watch_last_error", " · ".join(errors))
             return result
+        except Cancelled:
+            self.db.set_meta("watch_last_result", "Revisión detenida antes de terminar.")
+            raise
         except Exception as error:
             self.db.set_meta("watch_last_error", str(error))
             raise
@@ -488,12 +588,13 @@ class Curator:
         def loop() -> None:
             while True:
                 # Los errores quedan guardados (watch_last_error, audit_last_error) y se muestran en la interfaz.
-                if self.watch_due():
+                if not self.paused and self.watch_due():
                     try:
-                        self.run_watch()
+                        with self.activity.task("watch", "Revisión automática de Jira", "/jira#automatica") as task:
+                            task.result = "Revisión de Jira: " + self.run_watch(task)
                     except Exception:
                         pass
-                if self.auditor.due():
+                if not self.paused and self.auditor.due():
                     try:
                         self.auditor.run()
                     except Exception:
@@ -539,13 +640,19 @@ class Curator:
             results.append({"conversation": conversation, "last": last, "changed": changed})
         return results
 
-    def import_chat(self, keys: list[str], channel_id: str, days: int) -> tuple[list[int], list[str]]:
+    def import_chat(
+        self, keys: list[str], channel_id: str, days: int, task: Task | None = None
+    ) -> tuple[list[int], list[str]]:
         """Crea una nota por conversación elegida, con sus imágenes, y la manda a analizar."""
         chat = self._require_chat()
         if any(key not in self.chat_cache for key in keys):
             self.chat_conversations(channel_id, days)
         note_ids, errors = [], []
-        for key in dict.fromkeys(keys):
+        keys = list(dict.fromkeys(keys))
+        for index, key in enumerate(keys):
+            if task:
+                task.check()
+                task.update(detail="Trayendo la conversación y sus imágenes", done=index, total=len(keys))
             conversation = self.chat_cache.get(key)
             if conversation is None:
                 errors.append("Una conversación ya no está en el rango elegido.")
@@ -572,8 +679,7 @@ class Curator:
                 (conversation.key, conversation.last_ts, note_id, now()),
             )
             note_ids.append(note_id)
-        for note_id in note_ids:
-            self.enqueue(note_id)
+            self.enqueue(note_id, generation=task.generation if task else None)
         return note_ids, errors
 
     # PDFs -------------------------------------------------------------------
@@ -629,16 +735,20 @@ class Curator:
         )
         return {row["chunk_key"]: row["note_id"] for row in rows}
 
-    def import_pdf_chunks(self, document_id: int, keys: list[str], mode: str, max_pages: int) -> list[int]:
+    def import_pdf_chunks(
+        self, document_id: int, keys: list[str], mode: str, max_pages: int, task: Task | None = None
+    ) -> list[int]:
         """Crea una nota por parte elegida; las páginas sin texto viajan como imágenes."""
         from . import pdf
 
         document = self.pdf_document(document_id)
         chunks, _ = self.pdf_plan(document_id, mode, max_pages)
+        chosen = [chunk for chunk in chunks if chunk.key in keys]
         note_ids = []
-        for chunk in chunks:
-            if chunk.key not in keys:
-                continue
+        for index, chunk in enumerate(chosen):
+            if task:
+                task.check()
+                task.update(detail=chunk.title, done=index, total=len(chosen))
             lines = [f"{document['title']}: {chunk.title} (páginas {chunk.pages})"]
             if len(chunk.scanned) == 1:
                 lines.append(f"La página {chunk.scanned[0]} no tiene texto extraíble y se adjunta como imagen.")
@@ -656,8 +766,7 @@ class Curator:
                 (document_id, chunk.key, note_id, now()),
             )
             note_ids.append(note_id)
-        for note_id in note_ids:
-            self.enqueue(note_id)
+            self.enqueue(note_id, generation=task.generation if task else None)
         return note_ids
 
     # Consultas para la interfaz --------------------------------------------

@@ -203,10 +203,14 @@ def test_jira_web_flow():
     assert 'value="SIM-101"' in page.text and 'value="SIM-102"' not in page.text and "Nuevo" in page.text
 
     one = client.post("/jira/import", data={"keys": ["SIM-101"]})
-    assert one.url.path.startswith("/notes/") and "Aprobar y publicar" in one.text
+    assert one.url.path == "/" and "Importando 1 ticket de Jira" in one.text and "SIM-101" in one.text
 
     many = client.post("/jira/import", data={"keys": ["SIM-102", "SIM-103"]})
-    assert many.url.path == "/" and "2 tickets importados" in many.text
+    assert many.url.path == "/" and "Importando 2 tickets de Jira" in many.text
+    events = [e["text"] for e in client.get("/activity").json()["events"]]
+    assert "2 tickets importados; se analizan en cola." in events
+    assert "1 ticket importado; se analiza en cola." in events
+    assert any(text.startswith("Nota #1 analizada") for text in events)
 
     assert "Selecciona al menos" in client.post("/jira/import", data={}).text
     assert "Importado" in client.get("/jira", params={"q": "SIM-101"}).text
@@ -312,7 +316,8 @@ def test_watch_web_flow():
     saved = client.post("/jira/watch", data={"jql": "project = SIM", "interval": "15", "enabled": "1"})
     assert "Revisión automática activada" in saved.text and "Revisar ahora" in saved.text
     ran = client.post("/jira/watch/run")
-    assert "Revisión de Jira: sin tickets nuevos ni cambios." in ran.text
+    assert "Revisando Jira" in ran.text
+    assert client.get("/activity").json()["events"][0]["text"] == "Revisión de Jira: sin tickets nuevos ni cambios."
     assert "Revisión automática de Jira activa (cada 15 min)" in client.get("/").text
     bad = client.post("/jira/watch", data={"jql": "", "interval": "15", "enabled": "1"})
     assert "Escribe la consulta JQL" in bad.text
