@@ -1,5 +1,12 @@
 # Cambios
 
+## Sin publicar
+
+- El bloque **Actividad** tiene su lugar en la interfaz: una columna a la derecha del contenido en pantallas anchas (sigue el desplazamiento) y una franja plegable bajo el menú en las angostas. Ya no flota sobre la página.
+- Las tareas detenidas que esperan a que termine una respuesta de la IA se muestran como «Deteniendo…», y el botón Detener se oculta cuando no queda nada por detener.
+- Corregido: después de actualizar, el navegador podía seguir usando la hoja de estilos de la versión anterior (y mostrar el bloque Actividad sin formato). Ahora cada versión de los estilos tiene su propia dirección.
+- La fecha de la última sincronización en Índice se muestra en formato corto.
+
 ## 0.0.4-beta (2026-10-30)
 
 - Bloque **Actividad** en todas las páginas: muestra en vivo qué hace la herramienta, la cola de análisis y los últimos resultados, se abre solo cuando algo empieza y actualiza la página cuando termina algo suyo.

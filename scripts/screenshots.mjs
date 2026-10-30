@@ -14,14 +14,6 @@ const out = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs'
 const browser = await chromium.launch()
 const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, deviceScaleFactor: 2, locale: 'es-ES' })
 const shot = (name, options = {}) => page.screenshot({ path: path.join(out, name), ...options })
-// En las capturas de página completa, el bloque Actividad (fijo en pantalla) quedaría flotando a mitad de la imagen.
-await page.addInitScript(() => {
-	document.addEventListener('DOMContentLoaded', () => {
-		const style = document.createElement('style')
-		style.textContent = '#activity { display: none }'
-		document.head.append(style)
-	})
-})
 const waitAnalyzed = async () => {
 	for (let i = 0; i < 40 && (await page.locator('text=Analizando…').count()); i++) {
 		await page.waitForTimeout(500)

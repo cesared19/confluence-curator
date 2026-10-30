@@ -1,5 +1,6 @@
 import base64
 import difflib
+import hashlib
 import html
 import secrets
 from datetime import datetime, timezone
@@ -136,7 +137,11 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
     app = FastAPI(title="Confluence Curator")
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.globals.update(ACTIONS=ACTIONS, curator=curator, settings=settings, loads=loads, version=__version__)
+    # La hoja de estilos se pide con su huella, para que el navegador no use una vieja después de actualizar.
+    asset_version = hashlib.sha1((HERE / "static" / "style.css").read_bytes()).hexdigest()[:10]
+    templates.env.globals.update(
+        ACTIONS=ACTIONS, curator=curator, settings=settings, loads=loads, version=__version__, asset_version=asset_version
+    )
     templates.env.filters["when"] = when
 
     def activity_state() -> dict:

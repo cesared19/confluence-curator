@@ -17,13 +17,14 @@ def test_activity_task_lifecycle():
         task.update(detail="SIM-1", done=1, total=3)
         assert activity.snapshot()["tasks"][0] == {
             "id": 1, "kind": "import", "label": "Importando", "detail": "SIM-1", "done": 1, "total": 3,
-            "started": task.started, "link": "",
+            "started": task.started, "link": "", "stopping": False,
         }
         task.result = "Listo"
     assert activity.snapshot()["tasks"] == [] and activity.events[0]["text"] == "Listo"
 
     with activity.task("audit", "Revisión") as task:
         assert activity.stop() == 1
+        assert activity.snapshot()["tasks"][0]["stopping"] is True  # se muestra como «Deteniendo» hasta su punto de control
         task.check()
         raise AssertionError("no debía llegar aquí")
     assert activity.events[0]["text"] == "Detenido: Revisión" and activity.events[0]["level"] == "warn"
@@ -164,3 +165,10 @@ def test_task_started_after_stop_with_old_generation_is_cancelled():
         task.check()
         raise AssertionError("no debía llegar aquí")
     assert activity.events[0]["text"] == "Detenido: Analizando"
+
+
+def test_layout_and_stylesheet_version():
+    curator = make(background=False)
+    page = TestClient(create_app(curator, Settings())).get("/").text
+    assert '<div class="layout">' in page and page.index("</main>") < page.index('<aside id="activity"')
+    assert '/static/style.css?v=' in page and "{{" not in page

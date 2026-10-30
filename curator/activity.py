@@ -56,7 +56,7 @@ class Task:
     def as_dict(self) -> dict:
         return {
             "id": self.id, "kind": self.kind, "label": self.label, "detail": self.detail, "done": self.done,
-            "total": self.total, "started": self.started, "link": self.link,
+            "total": self.total, "started": self.started, "link": self.link, "stopping": self.cancelled(),
         }
 
 

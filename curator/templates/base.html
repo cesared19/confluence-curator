@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>{% block title %}Confluence Curator{% endblock %}</title>
-	<link rel="stylesheet" href="/static/style.css">
+	<link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
 	{% block head %}{% endblock %}
 </head>
 <body>
@@ -28,16 +28,17 @@
 		</nav>
 	</div>
 </header>
+<div class="layout">
 <main>
 	{% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
 	{% if message %}<div class="flash ok" role="status">{{ message }}</div>{% endif %}
 	{% block content %}{% endblock %}
 </main>
-<footer class="muted">Confluence Curator {{ version }}</footer>
 {% set act = activity_state() %}
 <aside id="activity" class="activity{% if act.busy %} busy{% endif %}" aria-label="Actividad">
 	<button type="button" class="activity-toggle" aria-expanded="false" aria-controls="activity-body">
 		<span class="activity-dot" aria-hidden="true"></span>
+		<span class="activity-title">Actividad</span>
 		<span id="activity-summary">{% if act.busy %}Trabajando…{% elif act.paused %}Revisiones automáticas en pausa{% else %}Sin actividad{% endif %}</span>
 	</button>
 	<div id="activity-body" hidden>
@@ -51,12 +52,14 @@
 				<button type="submit">Reanudar revisiones automáticas</button>
 			</form>
 		</div>
-		<p class="muted activity-help" id="activity-help">Detener cancela lo que está en curso y lo que espera en cola, y pausa las revisiones automáticas. Lo que pidas después funciona con normalidad.</p>
+		<p class="muted activity-help" id="activity-help"{% if not act.busy %} hidden{% endif %}>Detener cancela lo que está en curso y lo que espera en cola, y pausa las revisiones automáticas. Lo que pidas después funciona con normalidad.</p>
 		<h3>Últimos resultados</h3>
 		<ul id="activity-events" class="activity-events"><li class="muted">Todavía nada.</li></ul>
 		<p id="activity-reload" hidden><a href="">Hay resultados nuevos para esta página: recargar</a></p>
 	</div>
 </aside>
+</div>
+<footer class="muted">Confluence Curator {{ version }}</footer>
 <script>
 	// Bloque «Actividad»: consulta /activity y muestra en vivo lo que hace la herramienta.
 	;(() => {
@@ -67,6 +70,7 @@
 		const seen = new Set()
 		let firstLoad = true
 		let lastEvent = null
+		let shownMessage = false // la explicación de Detener se reemplaza por el resultado al pulsarlo
 		let dirty = false // si el usuario escribió en un formulario, no se recarga la página sola
 		document.addEventListener('input', (e) => { if (!box.contains(e.target)) dirty = true })
 
@@ -74,7 +78,12 @@
 			body.hidden = !value
 			toggle.setAttribute('aria-expanded', String(value))
 		}
-		toggle.addEventListener('click', () => open(body.hidden))
+		// En pantallas anchas el bloque tiene su columna y siempre está abierto; en angostas se pliega.
+		const wide = window.matchMedia('(min-width: 1100px)')
+		const fit = () => wide.matches && open(true)
+		wide.addEventListener('change', fit)
+		fit()
+		toggle.addEventListener('click', () => !wide.matches && open(body.hidden))
 
 		const ago = (iso) => {
 			const seconds = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000))
@@ -97,8 +106,11 @@
 		const render = (state) => {
 			const queued = state.queued.length
 			let summary = 'Sin actividad'
-			if (state.tasks.length) {
-				summary = state.tasks[0].label + (state.tasks.length > 1 ? ` y ${state.tasks.length - 1} más` : '')
+			const active = state.tasks.filter((t) => !t.stopping)
+			if (active.length) {
+				summary = active[0].label + (active.length > 1 ? ` y ${active.length - 1} más` : '')
+			} else if (state.tasks.length) {
+				summary = 'Deteniendo…'
 			} else if (queued) summary = `${queued} en cola`
 			else if (state.paused) summary = 'Revisiones automáticas en pausa'
 			$('activity-summary').textContent = summary
@@ -107,11 +119,13 @@
 			const tasks = $('activity-tasks')
 			tasks.replaceChildren(
 				...state.tasks.map((t) => {
-					const li = item(t.label, t.link)
+					const li = item(t.stopping ? `Deteniendo: ${t.label}` : t.label, t.link, t.stopping ? 'stopping' : '')
 					const meta = document.createElement('div')
 					meta.className = 'muted'
 					const progress = t.total ? ` · ${t.done} de ${t.total}` : ''
-					meta.textContent = `${t.detail || 'En curso'}${progress} · hace ${ago(t.started)}`
+					meta.textContent = t.stopping
+						? 'Se descarta en cuanto termine el paso en curso (una respuesta de la IA no se puede cortar a medias).'
+						: `${t.detail || 'En curso'}${progress} · hace ${ago(t.started)}`
 					li.append(meta)
 					if (t.total) {
 						const bar = document.createElement('progress')
@@ -126,7 +140,8 @@
 			$('activity-queue').textContent = queued
 				? `${queued} ${queued === 1 ? 'nota espera' : 'notas esperan'} su turno para analizarse: ${state.queued.map((id) => '#' + id).join(', ')}`
 				: ''
-			$('activity-stop').hidden = !state.busy
+			$('activity-stop').hidden = !(queued || state.tasks.some((t) => !t.stopping))
+			$('activity-help').hidden = $('activity-stop').hidden && !shownMessage
 			$('activity-resume').hidden = !state.paused
 
 			const events = $('activity-events')
@@ -173,6 +188,7 @@
 				const response = await fetch($(id).action, { method: 'POST', headers: { accept: 'application/json' } })
 				const data = await response.json()
 				$('activity-help').textContent = data.message
+				shownMessage = true
 				poll()
 			})
 		}

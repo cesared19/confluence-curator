@@ -62,7 +62,7 @@ header {
 
 header .bar,
 main {
-	max-width: 1100px;
+	max-width: 1480px;
 	margin: 0 auto;
 	padding: 12px 16px;
 }
@@ -365,7 +365,7 @@ label.inline {
 }
 
 footer {
-	max-width: 1100px;
+	max-width: 1480px;
 	margin: 0 auto;
 	padding: 8px 16px 24px;
 }
@@ -478,39 +478,60 @@ code {
 	padding: 0 4px;
 }
 
-/* Bloque «Actividad» */
-body {
-	padding-bottom: 72px;
+/* Disposición: contenido y, a su derecha, el bloque «Actividad» */
+.layout {
+	max-width: 1480px;
+	margin: 0 auto;
+	padding: 12px 16px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 320px;
+	gap: 24px;
+	align-items: start;
+}
+
+.layout > main {
+	max-width: none;
+	margin: 0;
+	padding: 0;
+	min-width: 0;
 }
 
 .activity {
-	position: fixed;
-	right: 16px;
-	bottom: 16px;
-	z-index: 10;
-	width: min(380px, calc(100vw - 32px));
+	position: sticky;
+	top: 16px;
 	background: var(--surface);
 	border: 1px solid var(--border);
-	border-radius: 10px;
-	box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+	border-radius: 8px;
+	margin-top: 8px;
 }
 
 .activity-toggle {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: 8px;
 	width: 100%;
 	border: none;
+	border-radius: 8px;
 	background: none;
-	padding: 10px 14px;
+	padding: 12px 14px;
 	text-align: left;
 	font-weight: 600;
+}
+
+.activity-title {
+	flex: none;
 }
 
 #activity-summary {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	font-weight: 400;
+	color: var(--muted);
+}
+
+#activity-summary::before {
+	content: '· ';
 }
 
 .activity-dot {
@@ -539,7 +560,7 @@ body {
 }
 
 #activity-body {
-	max-height: min(60vh, 520px);
+	max-height: calc(100vh - 100px);
 	overflow-y: auto;
 	padding: 0 14px 12px;
 	border-top: 1px solid var(--border);
@@ -564,6 +585,11 @@ body {
 	font-weight: 600;
 }
 
+.activity-tasks li.stopping,
+.activity-tasks li.stopping a {
+	color: var(--warn);
+}
+
 .activity-tasks .muted {
 	font-weight: 400;
 }
@@ -577,6 +603,14 @@ body {
 .activity-events li {
 	font-size: 13px;
 	padding: 3px 0;
+}
+
+.activity-events a {
+	text-decoration: none;
+}
+
+.activity-events a:hover {
+	text-decoration: underline;
 }
 
 .activity-events li.warn {
@@ -594,6 +628,24 @@ body {
 
 .activity-help {
 	font-size: 12px;
+}
+
+/* Pantallas angostas: franja plegable arriba del contenido */
+@media (max-width: 1099px) {
+	.layout {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0;
+	}
+
+	.activity {
+		position: static;
+		order: -1;
+		margin: 0 0 16px;
+	}
+
+	#activity-body {
+		max-height: none;
+	}
 }
 
 button.danger {
