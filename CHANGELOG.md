@@ -1,13 +1,13 @@
 # Cambios
 
-## Sin publicar
+## 0.0.4-beta (2026-10-30)
 
 - Bloque **Actividad** en todas las páginas: muestra en vivo qué hace la herramienta, la cola de análisis y los últimos resultados, se abre solo cuando algo empieza y actualiza la página cuando termina algo suyo.
 - Botón **Detener**: cancela lo que está en curso y la cola de análisis (descarta la respuesta de la IA si llega después) y pausa las revisiones automáticas hasta **Reanudar**.
 - Las importaciones (Jira, chat, PDF), la sincronización y *Revisar ahora* de Jira pasan a segundo plano; después de importar se vuelve a la bandeja y el avance se sigue en Actividad.
 - Un análisis anterior se reemplaza solo cuando el nuevo termina bien: si se detiene o falla, las propuestas anteriores se conservan.
-
 - Importación desde el chat: página **Chat** que agrupa los mensajes de un canal en conversaciones (hilos y mensajes cercanos), indica cuáles ya se importaron o siguieron después, y crea una nota por conversación con autores, horas, enlace e imágenes. Primer conector: Slack, con el token de una app interna; se configura y se prueba en el asistente (paso «Chat»).
+- La bandeja ya no se recarga sola mientras se escribe en ella.
 
 ## 0.0.3-beta (2026-10-28)
 

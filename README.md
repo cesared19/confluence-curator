@@ -1,6 +1,6 @@
 # Confluence Curator
 
-> **Beta 0.0.3.** La conexión con Confluence Cloud y Jira Cloud reales ya se probó; el resto del flujo (propuestas y publicación) se probó con un Confluence simulado. Los lanzadores funcionan en Mac y Linux; el de Windows todavía no se probó. Haz las primeras publicaciones en páginas sin importancia.
+> **Beta 0.0.4.** La conexión con Confluence Cloud y Jira Cloud reales ya se probó; el resto del flujo (propuestas y publicación) y la conexión con Slack se probaron con servicios simulados. Los lanzadores funcionan en Mac y Linux; el de Windows todavía no se probó. Haz las primeras publicaciones en páginas sin importancia.
 
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
@@ -32,6 +32,10 @@ Tomadas en el modo demo, con Confluence y Jira simulados y propuestas de ejemplo
 **Revisión:** una contradicción entre dos páginas y una página que menciona un ticket que cambió después.
 
 ![Revisión de la documentación con hallazgos](docs/screenshots/revision.png)
+
+**Actividad:** qué está haciendo la herramienta, la cola de análisis y el botón Detener.
+
+<img src="docs/screenshots/actividad.png" alt="Bloque Actividad analizando una nota con dos en cola" width="420">
 
 **Chat:** conversaciones de un canal de Slack agrupadas en hilos y mensajes cercanos, listas para importar.
 
