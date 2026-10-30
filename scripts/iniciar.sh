@@ -45,4 +45,4 @@ fi
 
 echo
 echo "Deja esta ventana abierta mientras uses la herramienta."
-.venv/bin/python -m curator --open
+exec .venv/bin/python -m curator --open

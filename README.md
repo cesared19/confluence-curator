@@ -1,6 +1,6 @@
 # Confluence Curator
 
-> **Beta 0.0.5.** La conexión con Confluence Cloud y Jira Cloud reales ya se probó; las propuestas, la publicación, Ollama y Slack se probaron con servicios simulados. Los lanzadores funcionan en Mac y Linux; el de Windows todavía no se probó. Haz las primeras publicaciones en páginas sin importancia.
+> **Versión 1.0.0-beta.** La conexión con Confluence Cloud y Jira Cloud reales ya se probó; las propuestas, la publicación, Ollama y Slack se probaron con servicios simulados. Los lanzadores funcionan en Mac y Linux; el de Windows todavía no se probó. Haz las primeras publicaciones en páginas sin importancia.
 
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
@@ -80,7 +80,20 @@ No hace falta saber programar ni usar la terminal.
 
 Para usarla otro día, vuelve a abrir el lanzador. Mientras la usas, deja abierta la ventana negra; para cerrarla, cierra esa ventana. Si abres el lanzador cuando ya está en marcha, solo se abre el navegador. La configuración se puede cambiar cuando quieras en **Ajustes**.
 
-Para actualizar a una versión nueva, descárgala en otra carpeta y copia desde la anterior el archivo `.env` (la configuración) y la carpeta `data` (notas e historial). En Mac, `.env` no se ve en Finder porque empieza con punto: pulsa **Cmd + Mayús + .** para mostrar los archivos ocultos. En la Terminal, la carpeta que Finder muestra como «Documentos» es `~/Documents`, y el zip de GitHub se descomprime como `confluence-curator-VERSIÓN-beta`. La carpeta nueva vuelve a necesitar el permiso de macOS de arriba la primera vez.
+### Actualizar
+
+Desde la 1.0.0-beta la herramienta se actualiza sola. Una vez al día busca versiones nuevas en GitHub y, si hay una, muestra un aviso arriba de cada página. En **Actualizaciones** (enlace al pie de cada página y en Ajustes) se ven las novedades y se instala con un botón:
+
+1. Descarga la versión nueva.
+2. Guarda una copia de respaldo de la versión actual y de la base de datos en la carpeta `backups` (se conservan las últimas tres).
+3. Reemplaza los archivos de la herramienta sin tocar tu configuración (`.env`), tus datos (`data`) ni el entorno de Python (`.venv`).
+4. Instala lo que haga falta y se reinicia sola; la página se recarga con la versión nueva. En Windows, al terminar hay que cerrar la ventana y volver a abrir el lanzador.
+
+Si algo no funciona después de actualizar, **Volver a la versión anterior** restaura los archivos de la copia de respaldo. Si el repositorio de GitHub es privado, la página explica cómo agregar un token de solo lectura. Con Docker o con una copia de git, la herramienta no se actualiza sola: la misma página explica cómo hacerlo.
+
+**Desde la 0.0.5-beta o anterior** (que todavía no traen el actualizador) hay que actualizar a mano una última vez: descarga la versión nueva en otra carpeta y copia desde la anterior el archivo `.env` (la configuración) y la carpeta `data` (notas e historial). En Mac, `.env` no se ve en Finder porque empieza con punto: pulsa **Cmd + Mayús + .** para mostrar los archivos ocultos. En la Terminal, la carpeta que Finder muestra como «Documentos» es `~/Documents`, y el zip de GitHub se descomprime como `confluence-curator-VERSIÓN-beta`. La carpeta nueva vuelve a necesitar el permiso de macOS de arriba la primera vez.
+
+![Página de actualizaciones con una versión nueva disponible](docs/screenshots/actualizaciones.png)
 
 ![Asistente de configuración](docs/screenshots/asistente.png)
 
@@ -202,6 +215,7 @@ Estructura:
 - `curator/setup.py`: asistente de configuración (pruebas de conexión y guardado en `.env`).
 - `iniciar-windows.bat`, `iniciar-mac.command`, `iniciar-linux.sh` y `scripts/iniciar.sh`: lanzadores de doble clic.
 - `curator/demo.py`: Confluence y Jira simulados.
+- `curator/updater.py` y `curator/update_routes.py`: actualización desde los releases de GitHub, con respaldo y vuelta atrás.
 - `scripts/`: servidor de demostración con propuestas de ejemplo y script de capturas.
 
 ## Limitaciones conocidas
@@ -213,6 +227,10 @@ Estructura:
 - De Jira solo trae imágenes adjuntas; los demás archivos (PDF, videos, logs) quedan fuera. Un PDF adjunto a un ticket se puede descargar y subir en la página PDF.
 - De los PDFs con texto no se extraen las figuras: los diagramas de una página con texto no llegan al análisis. Si una figura importa, súbela como imagen en una nota.
 - Las tablas de los PDFs llegan como texto plano, sin columnas.
+
+## Licencia
+
+[Apache License 2.0](LICENSE).
 
 ## Próximos pasos posibles
 

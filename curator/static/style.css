@@ -662,3 +662,9 @@ button.danger {
 		width: auto;
 	}
 }
+
+.release-notes {
+	font-size: 14px;
+	max-height: 360px;
+	overflow-y: auto;
+}

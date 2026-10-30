@@ -76,6 +76,9 @@ class Settings:
     jira_max_images: int = 5
     pdf_max_scanned: int = 5
     slack_token: str = ""
+    update_repo: str = "cesared19/confluence-curator"
+    update_token: str = ""
+    update_api: str = "https://api.github.com"
 
     @property
     def confluence_configured(self) -> bool:
@@ -119,4 +122,7 @@ def load_settings() -> Settings:
         jira_max_images=int(os.environ.get("JIRA_MAX_IMAGES", "5")),
         pdf_max_scanned=int(os.environ.get("PDF_MAX_SCANNED_PAGES", "5")),
         slack_token=os.environ.get("SLACK_TOKEN", ""),
+        update_repo=os.environ.get("CURATOR_UPDATE_REPO", "cesared19/confluence-curator"),
+        update_token=os.environ.get("CURATOR_UPDATE_TOKEN", ""),
+        update_api=os.environ.get("CURATOR_UPDATE_API", "https://api.github.com"),
     )

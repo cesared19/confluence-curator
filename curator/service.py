@@ -62,6 +62,7 @@ class Curator:
         self.watch_lock = threading.Lock()
         self.watcher: threading.Thread | None = None
         self.activity = Activity()
+        self.periodic: list = []  # tareas que el programador revisa en cada vuelta (p. ej. buscar actualizaciones)
         self.auditor = Auditor(self)
 
     def reconfigure(
@@ -642,6 +643,11 @@ class Curator:
                 if not self.paused and self.auditor.due():
                     try:
                         self.auditor.run()
+                    except Exception:
+                        pass
+                for job in self.periodic:
+                    try:
+                        job()
                     except Exception:
                         pass
                 time.sleep(poll_seconds)

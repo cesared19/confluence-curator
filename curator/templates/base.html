@@ -30,6 +30,8 @@
 </header>
 <div class="layout">
 <main>
+	{% set upd = update_available() %}
+	{% if upd and request.url.path != '/update' %}<div class="flash ok update-banner">Hay una versión nueva de Confluence Curator: <strong>{{ upd.version }}</strong>. <a href="/update">Ver novedades y actualizar</a></div>{% endif %}
 	{% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
 	{% if message %}<div class="flash ok" role="status">{{ message }}</div>{% endif %}
 	{% block content %}{% endblock %}
@@ -59,7 +61,7 @@
 	</div>
 </aside>
 </div>
-<footer class="muted">Confluence Curator {{ version }}</footer>
+<footer class="muted">Confluence Curator {{ version }} · <a href="/update">Actualizaciones</a></footer>
 <script>
 	// Bloque «Actividad»: consulta /activity y muestra en vivo lo que hace la herramienta.
 	;(() => {

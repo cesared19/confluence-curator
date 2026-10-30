@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import __version__, setup, storage
+from . import __version__, setup, storage, update_routes
 from .advisor import AnthropicAdvisor, MockAdvisor, OllamaAdvisor
 from .audit import KINDS
 from .config import Settings, load_settings
@@ -178,6 +178,7 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
         curator.reconfigure(**components(settings))
 
     setup.register(app, curator, settings, render, back, rebuild)
+    update_routes.register(app, curator, settings, templates, render, back)
 
     @app.get("/", response_class=HTMLResponse)
     def inbox(request: Request, error: str = "", message: str = ""):

@@ -42,11 +42,16 @@ def settings_key(name: str) -> str:
     return os.environ.get(name, "")
 
 
+def is_allowed(request: Request, settings) -> bool:
+    """Ajustes y actualizaciones tocan credenciales y archivos: se abren desde este equipo, con contraseña o si se
+    habilitó a propósito."""
+    host = request.client.host if request.client else ""
+    return host in LOCAL_HOSTS or bool(settings.app_user and settings.app_password) or settings.setup_open
+
+
 def register(app: FastAPI, curator, settings, render, back, rebuild) -> None:
     def allowed(request: Request) -> bool:
-        """El asistente guarda credenciales: se abre desde este equipo, con contraseña o si se habilitó a propósito."""
-        host = request.client.host if request.client else ""
-        return host in LOCAL_HOSTS or bool(settings.app_user and settings.app_password) or settings.setup_open
+        return is_allowed(request, settings)
 
     def forbidden(request: Request):
         return render(request, "setup_forbidden.html", status_code=403)

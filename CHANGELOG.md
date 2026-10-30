@@ -1,7 +1,11 @@
 # Cambios
 
-## Sin publicar
+## 1.0.0-beta (2026-10-30)
 
+Primera versión 1.0, todavía en prueba.
+
+- **Actualizador integrado:** la herramienta busca versiones nuevas en GitHub una vez al día, avisa arriba de cada página y se actualiza con un botón en **Actualizaciones**: respalda la versión actual y la base de datos, reemplaza los archivos sin tocar la configuración ni los datos, instala lo necesario y se reinicia sola. Permite volver a la versión anterior y usar un token de GitHub si el repositorio es privado. Con Docker o con una copia de git explica cómo actualizar.
+- Licencia Apache 2.0.
 - Si la IA acierta la página pero da un número de sección que no existe (frecuente con modelos locales), la herramienta lo corrige cuando no hay duda: la página tiene una sola sección, la propuesta empieza con el título de una sección real, se le mostró una sola sección de esa página, o elegiste la sección al analizar de nuevo.
 - Si no se puede saber, la propuesta muestra las secciones reales de la página para elegir dónde va (o agregar al final) y analizar de nuevo; mientras tanto no se ofrece publicar.
 - La consulta a la IA incluye la lista explícita de ubicaciones válidas, para que los modelos chicos se equivoquen menos.

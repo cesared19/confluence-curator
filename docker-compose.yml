@@ -6,6 +6,8 @@ services:
       CURATOR_ENV_FILE: /data/config.env
       # El asistente solo se abre desde este equipo: el puerto se publica únicamente en 127.0.0.1.
       CURATOR_SETUP_OPEN: "1"
+      # Dentro de Docker la herramienta no se actualiza sola: se reconstruye la imagen.
+      CURATOR_IN_DOCKER: "1"
     volumes:
       - curator-data:/data
     ports:

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Actualizaciones · Confluence Curator{% endblock %}
+{% block content %}
+<h1>Actualizaciones</h1>
+
+<section class="card">
+	<p>Versión instalada: <strong>{{ current }}</strong></p>
+	{% if kind == 'docker' %}
+	<p>Esta copia corre en Docker y se actualiza desde la terminal: descarga la versión nueva y ejecuta <code>docker compose up -d --build</code>. Tu configuración y tus datos están en el volumen y se conservan.</p>
+	{% elif kind == 'git' %}
+	<p>Esta copia es un clon de git: actualízala con <code>git pull</code> y <code>pip install -r requirements.txt</code>, y reinicia la herramienta.</p>
+	{% else %}
+		{% if newer %}
+		<h2>Hay una versión nueva: {{ newer.version }}</h2>
+		<p class="muted">{{ newer.name }}{% if newer.published %} · publicada {{ newer.published|when }}{% endif %}</p>
+		{% if newer.notes %}<details open><summary>Novedades</summary><div class="note-text release-notes">{{ newer.notes }}</div></details>{% endif %}
+		<form method="post" action="/update/install" data-busy="Actualizando…">
+			<p class="muted">Antes de reemplazar nada se guarda una copia de respaldo de la versión actual y de la base de datos. Tu configuración (.env) y tus datos no se tocan. {% if windows %}Al terminar, cierra la ventana de la herramienta y vuelve a abrir el lanzador.{% else %}Al terminar, la herramienta se reinicia sola.{% endif %} Lo que se esté analizando se retoma después.</p>
+			<div class="actions"><button class="primary" type="submit">Actualizar a {{ newer.version }}</button></div>
+		</form>
+		{% elif latest %}
+		<p>Tienes la última versión publicada ({{ latest.version }}).</p>
+		{% endif %}
+		<form method="post" action="/update/check" data-busy="Buscando…">
+			<p class="muted">{% if checked %}Última búsqueda: {{ checked|when }}. {% endif %}La herramienta busca versiones nuevas una vez al día y avisa arriba de cada página.</p>
+			{% if check_error %}<div class="flash error">{{ check_error }}</div>{% endif %}
+			<div class="actions"><button type="submit">Buscar ahora</button></div>
+		</form>
+	{% endif %}
+</section>
+
+{% if kind == 'folder' and backups %}
+<section class="card">
+	<h2>Volver a una versión anterior</h2>
+	<p class="muted">Se guardan las últimas copias de respaldo: {{ backups|join(', ') }}. Volver atrás restaura los archivos de la más reciente ({{ backups[0] }}); tu configuración y tus datos actuales se conservan.</p>
+	<form method="post" action="/update/rollback" data-busy="Volviendo…">
+		<div class="actions"><button type="submit">Volver a {{ backups[0] }}</button></div>
+	</form>
+</section>
+{% endif %}
+
+{% if kind == 'folder' %}
+<section class="card">
+	<h2>Acceso a GitHub</h2>
+	<p class="muted">Las versiones se descargan de <a href="https://github.com/{{ repo }}/releases" target="_blank" rel="noopener">github.com/{{ repo }}</a>. Si el repositorio es público no hace falta nada más. Si es privado, agrega un token de solo lectura: en GitHub, <em>Settings → Developer settings → Fine-grained tokens</em>, con acceso solo a ese repositorio y el permiso <em>Contents: Read-only</em>.</p>
+	<form method="post" action="/update/token">
+		<label for="update-token">Token de GitHub</label>
+		<input id="update-token" name="token" type="password" autocomplete="off" placeholder="{{ 'Guardado' if has_token else 'github_pat_…' }}">
+		<div class="actions">
+			<button type="submit">Guardar token</button>
+			{% if has_token %}<button type="submit" name="remove" value="1">Quitar token</button>{% endif %}
+		</div>
+	</form>
+</section>
+{% endif %}
+
+{% if updating %}
+<script>
+	// Mientras se actualiza, la herramienta se reinicia: se espera a que responda con la versión nueva y se recarga.
+	;(() => {
+		const before = {{ current|tojson }}
+		const started = Date.now()
+		const wait = async () => {
+			try {
+				const response = await fetch('/version', { cache: 'no-store' })
+				const { version } = await response.json()
+				if (version !== before) {
+					location.href = '/update?message=' + encodeURIComponent(`Listo: ahora tienes la versión ${version}.`)
+					return
+				}
+			} catch (error) {
+				// reiniciándose: todavía no responde
+			}
+			if (Date.now() - started < 10 * 60 * 1000) setTimeout(wait, 2000)
+		}
+		setTimeout(wait, 2000)
+	})()
+</script>
+{% endif %}
+{% endblock %}
