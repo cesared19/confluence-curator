@@ -72,6 +72,7 @@
 </section>
 {% endfor %}
 
+{% if not note.analyzing %}
 <section class="card">
 	<h2>¿No es el lugar correcto?</h2>
 	{% if alternatives %}
@@ -99,4 +100,5 @@
 		<div class="actions"><button type="submit">Analizar de nuevo</button></div>
 	</form>
 </section>
+{% endif %}
 {% endblock %}

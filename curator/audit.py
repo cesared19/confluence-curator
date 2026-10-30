@@ -15,7 +15,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from . import storage
-from .advisor import ContradictionCheck, SectionRef
+from .advisor import ContradictionCheck, SectionRef, advise
 from .confluence import ConfluenceError
 from .db import now
 from .search import BM25, Document
@@ -289,9 +289,11 @@ class Auditor:
                 if task:
                     task.check()
                     task.update(detail="Comparando secciones parecidas", done=compared, total=budget)
-                result = self.curator.advisor.compare(
+                result = advise(
+                    self.curator.advisor.compare,
                     SectionRef(page_a.title, section_a.heading, section_a.storage, page_a.updated),
                     SectionRef(page_b.title, section_b.heading, section_b.storage, page_b.updated),
+                    task=task,
                 )
                 compared += 1
                 self.db.execute(

@@ -116,7 +116,10 @@ Sobre el modelo:
 
 - Para analizar imágenes necesita visión (`gemma3`, `qwen2.5vl`, `llama3.2-vision`). Si eliges uno sin visión, usa notas solo de texto.
 - La calidad depende del tamaño del modelo. Con modelos de 4 a 8 mil millones de parámetros la ubicación suele ser razonable, pero la redacción y la detección de contradicciones son más flojas. `gemma3:12b` (unos 8 GB, con GPU de 12 GB o una Mac con 16 GB) es un buen punto de partida; `gemma3:27b` o `qwen2.5vl:32b` rinden mejor si el equipo lo permite. Sin GPU funciona, pero cada análisis puede tardar varios minutos.
-- `OLLAMA_CONTEXT` (32768 por defecto) es cuánto texto lee el modelo de una vez: la nota más las secciones candidatas. Si una página es muy larga, súbelo o baja `CURATOR_CANDIDATES` (10 por defecto).
+- **La memoria manda.** `gemma3:27b` necesita unos 17 GB solo para el modelo, más el contexto: en una Mac con 16 o 24 GB no cabe entero en la GPU y cada análisis puede tardar muchos minutos. Para comprobarlo, mientras analiza ejecuta `ollama ps` en una terminal: si la columna *PROCESSOR* no dice `100% GPU`, el modelo es demasiado grande para el equipo; usa uno más chico.
+- Mientras el modelo trabaja, el bloque Actividad muestra si está leyendo el contexto o redactando, y cuántos caracteres lleva. Si los números no avanzan en varios minutos, el modelo es demasiado lento para el equipo. *Detener* corta la generación en Ollama de inmediato.
+- Con Ollama, cada nota se compara con 5 secciones candidatas (10 con Claude): menos texto, respuestas más rápidas. Se cambia con `CURATOR_CANDIDATES`.
+- `OLLAMA_CONTEXT` (32768 por defecto) es el máximo de texto que el modelo puede leer de una vez. Cada consulta usa solo lo que necesita, así ocupa menos memoria. Si una nota no cabe, la herramienta lo avisa: divídela, usa partes de PDF más chicas o súbelo si el equipo tiene memoria.
 - Con Docker, si Ollama corre en el mismo equipo, usa `OLLAMA_URL=http://host.docker.internal:11434`.
 
 ### Credenciales de Confluence

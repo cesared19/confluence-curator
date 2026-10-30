@@ -8,12 +8,16 @@ Hay tres implementaciones con la misma interfaz:
 
 import base64
 import html
-
-import httpx
+import inspect
+import json
+import threading
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
+import httpx
 from pydantic import BaseModel, Field
+
+from .activity import Cancelled
 
 
 class Change(BaseModel):
@@ -85,6 +89,13 @@ class SectionRef:
     heading: str
     storage: str
     updated: str
+
+
+def advise(method, *args, task=None):
+    """Llama al asesor pasándole la tarea si la acepta (para mostrar el avance y poder detenerlo)."""
+    if task is not None and "task" in inspect.signature(method).parameters:
+        return method(*args, task=task)
+    return method(*args)
 
 
 class Advisor(Protocol):
@@ -256,8 +267,8 @@ class OllamaAdvisor:
         self.context = context
         self.http = httpx.Client(base_url=base_url.rstrip("/"), timeout=900, transport=transport)
 
-    def analyze(self, data: AdvisorInput) -> Analysis:
-        return self._chat(SYSTEM_PROMPT, build_prompt(data), [raw for _, raw in data.images], Analysis)
+    def analyze(self, data: AdvisorInput, task=None) -> Analysis:
+        return self._chat(SYSTEM_PROMPT, build_prompt(data), [raw for _, raw in data.images], Analysis, task)
 
     def models(self) -> list[str]:
         """Modelos descargados en Ollama; sirve para probar la conexión."""
@@ -269,36 +280,88 @@ class OllamaAdvisor:
             raise RuntimeError(f"Ollama respondió {response.status_code}")
         return sorted(m["name"] for m in response.json().get("models", []))
 
-    def compare(self, a: SectionRef, b: SectionRef) -> ContradictionCheck:
-        return self._chat(COMPARE_PROMPT, build_compare_prompt(a, b), [], ContradictionCheck)
+    def compare(self, a: SectionRef, b: SectionRef, task=None) -> ContradictionCheck:
+        return self._chat(COMPARE_PROMPT, build_compare_prompt(a, b), [], ContradictionCheck, task)
 
-    def _chat(self, system: str, prompt: str, images: list[bytes], output: type[BaseModel]):
+    def _chat(self, system: str, prompt: str, images: list[bytes], output: type[BaseModel], task=None):
+        """Pide la respuesta en modo streaming: así se ve el avance y Detener corta la generación en Ollama."""
+        system = system + "\nResponde solo con el JSON pedido."
+        num_ctx = self._context_for(system, prompt, images, output)
         user = {"role": "user", "content": prompt}
         if images:
             user["images"] = [base64.standard_b64encode(raw).decode() for raw in images]
         payload = {
             "model": self.model,
-            "stream": False,
+            "stream": True,
             "format": inline_refs(output.model_json_schema()),
-            "options": {"temperature": 0, "num_ctx": self.context},
-            "messages": [
-                {"role": "system", "content": system + "\nResponde solo con el JSON pedido."},
-                user,
-            ],
+            "options": {"temperature": 0, "num_ctx": num_ctx},
+            "messages": [{"role": "system", "content": system}, user],
         }
+        size = _thousands(len(system) + len(prompt))
+        if task:
+            task.update(detail=f"Esperando a {self.model}: está leyendo {size} caracteres de contexto")
+        parts: list[str] = []
+        final: dict = {}
+        finished = threading.Event()
         try:
-            response = self.http.post("/api/chat", json=payload)
-        except httpx.HTTPError as error:
+            with self.http.stream("POST", "/api/chat", json=payload) as response:
+                if task:
+                    # Mientras el modelo lee el contexto no llega nada: un vigilante cierra la conexión si se detiene.
+                    def watch() -> None:
+                        while not finished.wait(0.5):
+                            if task.cancelled():
+                                response.close()
+                                return
+
+                    threading.Thread(target=watch, name="curator-ollama-watch", daemon=True).start()
+                if not response.is_success:
+                    response.read()
+                    raise RuntimeError(f"Ollama respondió {response.status_code}: {response.text[:300]}")
+                for line in response.iter_lines():
+                    if not line.strip():
+                        continue
+                    chunk = json.loads(line)
+                    if chunk.get("error"):
+                        raise RuntimeError(f"Ollama: {chunk['error']}")
+                    parts.append(chunk.get("message", {}).get("content", ""))
+                    if task:
+                        task.update(detail=f"{self.model} está redactando la respuesta: {_thousands(sum(map(len, parts)))} caracteres")
+                    if chunk.get("done"):
+                        final = chunk
+                        break
+        except (httpx.HTTPError, httpx.StreamError) as error:
+            if task and task.cancelled():
+                raise Cancelled() from error
             raise RuntimeError(f"No se pudo conectar con Ollama en {self.http.base_url}: {error}") from error
-        if not response.is_success:
-            raise RuntimeError(f"Ollama respondió {response.status_code}: {response.text[:300]}")
-        body = response.json()
-        if body.get("done_reason") == "length":
+        finally:
+            finished.set()
+        if task and task.cancelled():
+            raise Cancelled()
+        if final.get("done_reason") == "length":
             raise RuntimeError("La respuesta se cortó por longitud; aumenta OLLAMA_CONTEXT o divide la nota.")
         try:
-            return output.model_validate_json(body["message"]["content"])
-        except (KeyError, ValueError) as error:
+            return output.model_validate_json("".join(parts))
+        except ValueError as error:
             raise RuntimeError(f"El modelo local no devolvió un análisis válido: {error}") from error
+
+    def _context_for(self, system: str, prompt: str, images: list[bytes], output: type[BaseModel]) -> int:
+        """Contexto justo para esta consulta: uno más chico usa menos memoria y responde antes.
+
+        Si no cabe en OLLAMA_CONTEXT se avisa en vez de dejar que Ollama recorte el texto sin decir nada.
+        """
+        reserve = 6144 if output is Analysis else 1024  # lo que el modelo puede escribir
+        needed = (len(system) + len(prompt)) // 3 + 800 * len(images) + reserve  # ~3 caracteres por token
+        if needed > self.context:
+            raise RuntimeError(
+                f"La nota y las secciones candidatas necesitan unos {_thousands(needed)} tokens y el contexto del "
+                f"modelo está en {_thousands(self.context)}. Divide la nota (o usa partes de PDF más chicas), baja "
+                "CURATOR_CANDIDATES o sube OLLAMA_CONTEXT si el equipo tiene memoria."
+            )
+        return min(self.context, max(8192, -(-needed // 2048) * 2048))
+
+
+def _thousands(number: int) -> str:
+    return f"{number:,}".replace(",", ".")
 
 
 class MockAdvisor:

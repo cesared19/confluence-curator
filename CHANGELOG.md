@@ -2,6 +2,12 @@
 
 ## Sin publicar
 
+- Modelo local (Ollama): la respuesta llega por partes. El bloque Actividad muestra si el modelo está leyendo el contexto o redactando y cuántos caracteres lleva, y **Detener** corta la generación en Ollama de inmediato (antes había que esperar a que terminara, hasta 15 minutos).
+- Ollama recibe 5 secciones candidatas por nota en vez de 10 y un contexto ajustado al tamaño de cada consulta, para responder antes y usar menos memoria; si algo no cabe, se avisa en lugar de recortarlo en silencio.
+- Una detención durante la respuesta de la IA deja la nota como «Detenida», no como error.
+- «Analizar de nuevo» no se ofrece mientras la nota se está analizando, y una nota no entra dos veces a la cola.
+- El asistente indica qué tamaño de modelo local conviene según la memoria del equipo.
+
 - El bloque **Actividad** tiene su lugar en la interfaz: una columna a la derecha del contenido en pantallas anchas (sigue el desplazamiento) y una franja plegable bajo el menú en las angostas. Ya no flota sobre la página.
 - Las tareas detenidas que esperan a que termine una respuesta de la IA se muestran como «Deteniendo…», y el botón Detener se oculta cuando no queda nada por detener.
 - Corregido: después de actualizar, el navegador podía seguir usando la hoja de estilos de la versión anterior (y mostrar el bloque Actividad sin formato). Ahora cada versión de los estilos tiene su propia dirección.

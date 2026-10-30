@@ -111,6 +111,7 @@
 			<select id="model-list" hidden aria-label="Elegir modelo"></select>
 			<input id="ollama_model" name="ollama_model" type="text" value="{{ s.ollama_model }}">
 			<p class="muted">Para leer imágenes elige uno con visión, como <code>gemma3</code>. Para descargarlo, en una terminal: <code>ollama pull gemma3:12b</code></p>
+			<p class="muted">Elige el tamaño según la memoria del equipo: <code>gemma3:12b</code> va bien con 16 GB; <code>gemma3:27b</code> necesita 32 GB o más. Con un modelo demasiado grande, cada análisis puede tardar muchos minutos; el bloque Actividad muestra si avanza.</p>
 		</div>
 	</section>
 

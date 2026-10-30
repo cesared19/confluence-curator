@@ -107,7 +107,8 @@ def load_settings() -> Settings:
         ollama_model=os.environ.get("OLLAMA_MODEL", "gemma3:12b"),
         ollama_context=int(os.environ.get("OLLAMA_CONTEXT", "32768")),
         database_path=os.environ.get("CURATOR_DATABASE", "data/curator.db"),
-        candidates=int(os.environ.get("CURATOR_CANDIDATES", "10")),
+        # Un modelo local responde mucho más rápido con menos texto: por defecto recibe menos secciones candidatas.
+        candidates=int(os.environ.get("CURATOR_CANDIDATES", "5" if advisor == "ollama" else "10")),
         app_user=os.environ.get("CURATOR_USER", ""),
         app_password=os.environ.get("CURATOR_PASSWORD", ""),
         setup_open=os.environ.get("CURATOR_SETUP_OPEN") == "1",

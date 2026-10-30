@@ -126,47 +126,105 @@ def test_basic_auth():
     assert client.get("/", auth=("yo", "secreto")).status_code == 200
 
 
-def test_ollama_advisor_request_and_parsing():
+def ndjson(*chunks) -> bytes:
+    return "".join(json.dumps(c) + "\n" for c in chunks).encode()
+
+
+def answer_chunks(analysis: Analysis, done_reason: str = "stop") -> bytes:
+    text = analysis.model_dump_json()
+    middle = len(text) // 2
+    return ndjson(
+        {"message": {"content": text[:middle]}, "done": False},
+        {"message": {"content": text[middle:]}, "done": False},
+        {"message": {"content": ""}, "done": True, "done_reason": done_reason},
+    )
+
+
+class FakeTask:
+    def __init__(self, cancel_after_updates: int | None = None):
+        self.details = []
+        self.cancel_after = cancel_after_updates
+
+    def update(self, detail=None, done=None, total=None):
+        self.details.append(detail)
+
+    def cancelled(self):
+        return self.cancel_after is not None and len(self.details) > self.cancel_after
+
+
+def test_ollama_advisor_streams_and_reports_progress():
     from curator.advisor import OllamaAdvisor, inline_refs
 
     seen = {}
+    answer = Analysis(note_summary="s", changes=[], alternatives=[], no_change_reason="ya documentado")
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
         seen["payload"] = json.loads(request.content)
-        answer = Analysis(note_summary="s", changes=[], alternatives=[], no_change_reason="ya documentado")
-        return httpx.Response(200, json={"message": {"content": answer.model_dump_json()}, "done_reason": "stop"})
+        return httpx.Response(200, content=answer_chunks(answer))
 
-    advisor = OllamaAdvisor("http://localhost:11434/", "gemma3:12b", 8192, transport=httpx.MockTransport(handler))
-    result = advisor.analyze(AdvisorInput(note_text="nota", source="Chat", images=[("image/png", b"abc")]))
+    advisor = OllamaAdvisor("http://localhost:11434/", "gemma3:12b", 32768, transport=httpx.MockTransport(handler))
+    task = FakeTask()
+    result = advisor.analyze(AdvisorInput(note_text="nota", source="Chat", images=[("image/png", b"abc")]), task=task)
     payload = seen["payload"]
     assert seen["path"] == "/api/chat" and result.no_change_reason == "ya documentado"
-    assert payload["model"] == "gemma3:12b" and payload["stream"] is False
-    assert payload["options"] == {"temperature": 0, "num_ctx": 8192}
+    assert payload["model"] == "gemma3:12b" and payload["stream"] is True
+    assert payload["options"] == {"temperature": 0, "num_ctx": 8192}  # contexto justo, no los 32768 configurados
     assert payload["messages"][1]["images"] == ["YWJj"]
-    assert "$ref" not in json.dumps(payload["format"]) and "$defs" not in payload["format"]
-    assert payload["format"] == inline_refs(Analysis.model_json_schema())
+    assert payload["format"] == inline_refs(Analysis.model_json_schema()) and "$defs" not in payload["format"]
+    assert task.details[0].startswith("Esperando a gemma3:12b: está leyendo ")
+    assert task.details[-1].startswith("gemma3:12b está redactando la respuesta: ")
 
 
-def test_ollama_advisor_errors():
+def test_ollama_advisor_errors_and_limits():
     from curator.advisor import OllamaAdvisor
 
-    def bad_json(request):
-        return httpx.Response(200, json={"message": {"content": "no es json"}, "done_reason": "stop"})
+    def advisor_with(body: bytes, context: int = 32768):
+        return OllamaAdvisor("http://x", "m", context, transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body)))
 
-    advisor = OllamaAdvisor("http://x", "m", 1024, transport=httpx.MockTransport(bad_json))
+    cases = [
+        (ndjson({"message": {"content": "no es json"}, "done": True, "done_reason": "stop"}), "no devolvió un análisis válido"),
+        (ndjson({"message": {"content": "{"}, "done": True, "done_reason": "length"}), "OLLAMA_CONTEXT"),
+        (ndjson({"error": "model requires more system memory"}), "more system memory"),
+    ]
+    for body, expected in cases:
+        try:
+            advisor_with(body).analyze(AdvisorInput(note_text="n", source=""))
+            raise AssertionError("debía fallar")
+        except RuntimeError as error:
+            assert expected in str(error)
+
     try:
-        advisor.analyze(AdvisorInput(note_text="n", source=""))
+        advisor_with(b"", context=4096).analyze(AdvisorInput(note_text="x" * 30000, source=""))
         raise AssertionError("debía fallar")
     except RuntimeError as error:
-        assert "no devolvió un análisis válido" in str(error)
+        assert "tokens" in str(error) and "CURATOR_CANDIDATES" in str(error)
 
-    def cut(request):
-        return httpx.Response(200, json={"message": {"content": "{"}, "done_reason": "length"})
 
-    advisor = OllamaAdvisor("http://x", "m", 1024, transport=httpx.MockTransport(cut))
+def test_ollama_advisor_stop_discards_and_closes():
+    import time
+
+    from curator.activity import Cancelled
+    from curator.advisor import OllamaAdvisor
+
+    answer = Analysis(note_summary="s", changes=[], alternatives=[], no_change_reason="x")
+    advisor = OllamaAdvisor("http://x", "m", 32768, transport=httpx.MockTransport(lambda r: httpx.Response(200, content=answer_chunks(answer))))
     try:
-        advisor.analyze(AdvisorInput(note_text="n", source=""))
-        raise AssertionError("debía fallar")
-    except RuntimeError as error:
-        assert "OLLAMA_CONTEXT" in str(error)
+        advisor.analyze(AdvisorInput(note_text="n", source=""), task=FakeTask(cancel_after_updates=1))
+        raise AssertionError("debía detenerse")
+    except Cancelled:
+        pass
+
+    # Mientras el modelo todavía lee el contexto no llega nada: el vigilante corta la conexión igual.
+    def slow_body():
+        time.sleep(1.5)
+        yield ndjson({"message": {"content": "{"}, "done": False})
+
+    slow = OllamaAdvisor("http://x", "m", 32768, transport=httpx.MockTransport(lambda r: httpx.Response(200, content=slow_body())))
+    started = time.monotonic()
+    try:
+        slow.analyze(AdvisorInput(note_text="n", source=""), task=FakeTask(cancel_after_updates=0))
+        raise AssertionError("debía detenerse")
+    except Cancelled:
+        pass
+    assert time.monotonic() - started < 5

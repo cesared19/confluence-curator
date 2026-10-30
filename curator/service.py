@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from . import storage
 from .activity import Activity, Cancelled, Task
-from .advisor import Advisor, AdvisorInput, Analysis, Candidate
+from .advisor import Advisor, AdvisorInput, Analysis, Candidate, advise
 from .audit import Auditor
 from .chat import IMAGE_TYPES, conversation_text
 from .confluence import ConfluenceError
@@ -198,7 +198,9 @@ class Curator:
         if task:
             task.check()
         try:
-            analysis = self.advisor.analyze(data)
+            analysis = advise(self.advisor.analyze, data, task=task)
+        except Cancelled:
+            raise
         except Exception as error:  # el error se muestra en la página de la nota
             self.db.execute("UPDATE notes SET error = ? WHERE id = ?", (f"No se pudo analizar: {error}", note_id))
             return
@@ -211,7 +213,10 @@ class Curator:
         """Analiza la nota en segundo plano, de a una por vez, para no bloquear la interfaz.
 
         generation es la de la tarea que la importó: si el usuario detuvo esa tarea, el análisis se descarta.
+        Una nota que ya espera en la cola no se agrega otra vez.
         """
+        if note_id in self.queued():
+            return
         generation = self.activity.generation if generation is None else generation
         self.db.execute("UPDATE notes SET analyzing = 1, error = '' WHERE id = ?", (note_id,))
         if not self.background:

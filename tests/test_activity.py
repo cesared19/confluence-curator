@@ -172,3 +172,60 @@ def test_layout_and_stylesheet_version():
     page = TestClient(create_app(curator, Settings())).get("/").text
     assert '<div class="layout">' in page and page.index("</main>") < page.index('<aside id="activity"')
     assert '/static/style.css?v=' in page and "{{" not in page
+
+
+def test_streaming_advisor_stops_mid_answer_and_queue_has_no_duplicates():
+    from curator.activity import Cancelled
+
+    class Streaming(MockAdvisor):
+        """Como Ollama: recibe la tarea, informa avance y corta en cuanto se detiene."""
+
+        def __init__(self):
+            self.started = threading.Event()
+
+        def analyze(self, data, task=None):
+            task.update(detail="redactando")
+            self.started.set()
+            for _ in range(100):
+                if task.cancelled():
+                    raise Cancelled()
+                threading.Event().wait(0.05)
+            raise AssertionError("debía detenerse")
+
+    advisor = Streaming()
+    curator = make(advisor)
+    first = curator.create_note("Las perillas ahora son cinco", "Chat", "", [])
+    second = curator.create_note("Otra nota", "Chat", "", [])
+    curator.enqueue(first)
+    assert advisor.started.wait(5)
+    curator.enqueue(second)
+    curator.enqueue(second)  # «Analizar de nuevo» con la nota ya en cola: no se duplica
+    assert curator.queued() == [second]
+    assert curator.activity.snapshot()["tasks"][0]["detail"] == "redactando"
+    curator.stop()
+    curator.wait_idle()
+    for note_id in (first, second):
+        assert curator.note(note_id)["error"].startswith("Análisis detenido")
+
+
+def test_note_page_hides_reanalyze_while_analyzing():
+    curator = make(background=False)
+    note_id = curator.create_note("x", "Chat", "", [])
+    curator.db.execute("UPDATE notes SET analyzing = 1 WHERE id = ?", (note_id,))
+    client = TestClient(create_app(curator, Settings()))
+    assert "Analizar de nuevo" not in client.get(f"/notes/{note_id}").text
+    curator.db.execute("UPDATE notes SET analyzing = 0 WHERE id = ?", (note_id,))
+    assert "Analizar de nuevo" in client.get(f"/notes/{note_id}").text
+
+
+def test_local_model_gets_fewer_candidates(monkeypatch, tmp_path):
+    from curator.config import load_settings
+
+    monkeypatch.setenv("CURATOR_ENV_FILE", str(tmp_path / "none.env"))
+    monkeypatch.delenv("CURATOR_CANDIDATES", raising=False)
+    monkeypatch.setenv("CURATOR_ADVISOR", "ollama")
+    assert load_settings().candidates == 5
+    monkeypatch.setenv("CURATOR_ADVISOR", "mock")
+    assert load_settings().candidates == 10
+    monkeypatch.setenv("CURATOR_CANDIDATES", "3")
+    assert load_settings().candidates == 3
