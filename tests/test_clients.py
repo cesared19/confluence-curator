@@ -228,3 +228,12 @@ def test_ollama_advisor_stop_discards_and_closes():
     except Cancelled:
         pass
     assert time.monotonic() - started < 5
+
+
+def test_prompt_lists_valid_locations():
+    from curator.advisor import build_prompt
+
+    prompt = build_prompt(AdvisorInput(
+        note_text="n", source="", candidates=[Candidate("2", "Manual", 1, "Alarmas", "<h2>Alarmas</h2>", 1.0)]
+    ))
+    assert "Ubicaciones válidas para update_section (usa exactamente una de estas): page_id 2 + section_index 1 («Alarmas»)." in prompt

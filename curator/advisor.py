@@ -181,6 +181,9 @@ def build_prompt(data: AdvisorInput) -> str:
     ]
     if data.hint:
         parts.append(f"<user_hint>\n{data.hint}\n</user_hint>\nRespeta la indicación del usuario sobre la ubicación.")
+    if data.candidates:
+        valid = "; ".join(f'page_id {c.page_id} + section_index {c.section_index} («{c.heading}»)' for c in data.candidates)
+        parts.append(f"Ubicaciones válidas para update_section (usa exactamente una de estas): {valid}.")
     parts.append(
         "Decide dónde va la información de la nota y redacta los cambios. Para update_section usa solo secciones "
         "candidatas (page_id + section_index)."

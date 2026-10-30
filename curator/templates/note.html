@@ -42,6 +42,16 @@
 	</ul>
 	{% endif %}
 	{% if row.error %}<div class="flash error">{{ row.error }}</div>{% endif %}
+	{% if p.sections and not note.analyzing %}
+	<form class="pick-section" method="post" action="/notes/{{ note.id }}/reanalyze" data-busy="Analizando…">
+		<label for="pick-{{ row.id }}">¿En qué parte de «{{ p.page.title }}» va?</label>
+		<select id="pick-{{ row.id }}" name="target">
+			{% for s in p.sections %}<option value="{{ p.page.id }}#{{ s.index }}">{{ s.heading }}</option>{% endfor %}
+			<option value="{{ p.page.id }}">Agregar al final de la página</option>
+		</select>
+		<div class="actions"><button class="primary" type="submit">Usar esta ubicación y analizar de nuevo</button></div>
+	</form>
+	{% endif %}
 
 	<details open>
 		<summary>Diferencias</summary>
@@ -52,7 +62,12 @@
 		<iframe class="preview" sandbox srcdoc="{{ p.preview }}" title="Vista previa de la propuesta {{ row.id }}"></iframe>
 	</details>
 
-	{% if row.status == 'pending' %}
+	{% if row.status == 'pending' and row.action == 'update_section' and not row.old_storage %}
+	{# Sin una sección válida no hay qué reemplazar: primero se elige la ubicación. #}
+	<form method="post" action="/proposals/{{ row.id }}/reject">
+		<div class="actions"><button type="submit">Descartar</button></div>
+	</form>
+	{% elif row.status == 'pending' %}
 	<form method="post" action="/proposals/{{ row.id }}/apply" data-busy="Publicando…">
 		{% if row.action == 'create_page' %}
 		<label for="title-{{ row.id }}">Título de la página</label>

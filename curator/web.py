@@ -236,6 +236,8 @@ def create_app(curator: Curator | None = None, settings: Settings | None = None)
                     "row": p,
                     "page": page,
                     "heading": section.heading if section else "",
+                    # Si la IA no dio una sección válida, se ofrecen las secciones reales de la página para elegir.
+                    "sections": storage.split_sections(page.body) if page and p["error"] and p["status"] == "pending" else [],
                     "conflicts": loads(p["conflicts"]),
                     "diff": diff_table(p["old_storage"], p["new_storage"]),
                     "preview": preview(p["new_storage"], note_id),

@@ -1,5 +1,11 @@
 # Cambios
 
+## Sin publicar
+
+- Si la IA acierta la página pero da un número de sección que no existe (frecuente con modelos locales), la herramienta lo corrige cuando no hay duda: la página tiene una sola sección, la propuesta empieza con el título de una sección real, se le mostró una sola sección de esa página, o elegiste la sección al analizar de nuevo.
+- Si no se puede saber, la propuesta muestra las secciones reales de la página para elegir dónde va (o agregar al final) y analizar de nuevo; mientras tanto no se ofrece publicar.
+- La consulta a la IA incluye la lista explícita de ubicaciones válidas, para que los modelos chicos se equivoquen menos.
+
 ## 0.0.5-beta (2026-10-30)
 
 - Modelo local (Ollama): la respuesta llega por partes. El bloque Actividad muestra si el modelo está leyendo el contexto o redactando y cuántos caracteres lleva, y **Detener** corta la generación en Ollama de inmediato (antes había que esperar a que terminara, hasta 15 minutos).

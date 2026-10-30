@@ -138,13 +138,13 @@ def test_create_page_and_append():
 def test_invalid_proposals_are_flagged():
     curator, _ = make(
         ScriptedAdvisor(
-            analysis(change(section_index=99), change(content_storage="<p>sin cerrar"))
+            analysis(change(section_index=99, content_storage="<p>Sin encabezado.</p>"), change(content_storage="<p>sin cerrar"))
         )
     )
     note_id = curator.create_note("x", "Chat", "", [])
     curator.analyze(note_id)
     missing, broken = curator.proposals(note_id)
-    assert "no existe" in missing["error"]
+    assert missing["error"] == "La IA no indicó una sección válida de la página."
     assert "XHTML" in broken["error"]
     with pytest.raises(ValueError):
         curator.apply(broken["id"], broken["new_storage"])
@@ -191,3 +191,49 @@ def test_empty_note_rejected():
     curator, _ = make(MockAdvisor())
     with pytest.raises(CuratorError):
         curator.create_note("  ", "Chat", "", [])
+
+
+def test_invalid_section_number_is_resolved_when_unambiguous():
+    curator, confluence = make(ScriptedAdvisor(analysis(
+        # Número inexistente, pero el contenido empieza con el título de una sección real.
+        change(section_index=7, content_storage="<h2>Alarmas</h2><p>7,5 bar.</p>"),
+        # Página con una sola sección: se usa esa.
+        change(page_id="1", section_index=3, content_storage="<p>Documentación del simulador VR.</p>"),
+        # Sin forma de saberlo: queda para elegir a mano.
+        change(page_id="3", section_index=9, content_storage="<p>Algo sobre la simulación.</p>"),
+    )))
+    note_id = curator.create_note("x", "Chat", "", [])
+    curator.analyze(note_id)
+    by_title, single, unknown = curator.proposals(note_id)
+    assert (by_title["section_index"], by_title["error"]) == (2, "")
+    assert by_title["old_storage"] == "<h2>Alarmas</h2><p>La alarma de sobrepresión suena a partir de 8 bar.</p>"
+    assert (single["section_index"], single["error"]) == (0, "")
+    assert unknown["error"] == "La IA no indicó una sección válida de la página."
+    curator.apply(by_title["id"], by_title["new_storage"])
+    assert confluence.pages["2"].body.endswith("<h2>Alarmas</h2><p>7,5 bar.</p>")
+
+
+def test_pick_section_when_ai_gave_an_invalid_one():
+    from fastapi.testclient import TestClient
+
+    from curator.config import Settings
+    from curator.web import create_app
+
+    advisor = ScriptedAdvisor(analysis(change(page_id="3", section_index=9, content_storage="<p>Algo.</p>")))
+    curator, _ = make(advisor)
+    note_id = curator.create_note("x", "Chat", "", [])
+    curator.analyze(note_id)
+    client = TestClient(create_app(curator, Settings()))
+    page = client.get(f"/notes/{note_id}").text
+    assert "¿En qué parte de «Simulación: comportamiento esperado» va?" in page
+    assert 'value="3#0">Interacciones' in page and 'value="3#1">Alarmas en la simulación' in page
+    assert 'value="3">Agregar al final de la página' in page
+    assert "Aprobar y publicar" not in page  # sin sección válida no se puede publicar
+
+    client.post(f"/notes/{note_id}/reanalyze", data={"target": "3#1"})
+    hint = advisor.inputs[-1]
+    assert hint.candidates[0].page_id == "3" and hint.candidates[0].section_index == 1
+    # Aunque la IA repita un número inválido, se usa la sección que eligió el usuario.
+    [proposal] = curator.proposals(note_id)
+    assert (proposal["section_index"], proposal["error"]) == (1, "")
+    assert "¿En qué parte" not in client.get(f"/notes/{note_id}").text

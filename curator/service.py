@@ -207,7 +207,8 @@ class Curator:
         if task:
             task.check()  # si se detuvo mientras la IA respondía, la respuesta se descarta
         self.db.execute("UPDATE proposals SET status = 'superseded' WHERE note_id = ? AND status = 'pending'", (note_id,))
-        self._store(note_id, analysis)
+        target = (target_page, target_section) if target_page and target_section >= 0 else None
+        self._store(note_id, analysis, candidates, target)
 
     def enqueue(self, note_id: int, generation: int | None = None, **options) -> None:
         """Analiza la nota en segundo plano, de a una por vez, para no bloquear la interfaz.
@@ -323,7 +324,41 @@ class Curator:
         with self.pending.mutex:
             return [item[0] for item in self.pending.queue]
 
-    def _store(self, note_id: int, analysis: Analysis) -> None:
+    def _resolve_section(
+        self, page_id: str, index: int, content: str, candidates: list[Candidate], target: tuple[str, int] | None = None
+    ) -> storage.Section | None:
+        """La sección que el modelo quiso decir. Los modelos chicos aciertan la página pero a veces dan un número
+        de sección que no existe; se corrige cuando no hay ambigüedad."""
+        page = self.page(page_id)
+        if page is None:
+            return None
+        sections = storage.split_sections(page.body)
+        if 0 <= index < len(sections):
+            return sections[index]
+        if target and target[0] == page_id and 0 <= target[1] < len(sections):
+            return sections[target[1]]  # la sección que eligió el usuario
+        if len(sections) == 1:
+            return sections[0]
+        heading = storage.HEADING.match(content.strip())
+        if heading:
+            title = storage.to_text(heading.group(2)).casefold()
+            same = [s for s in sections if s.heading.casefold() == title]
+            if len(same) == 1:
+                return same[0]
+        shown = {c.section_index for c in candidates if c.page_id == page_id}
+        if len(shown) == 1:
+            only = shown.pop()
+            if 0 <= only < len(sections):
+                return sections[only]
+        return None
+
+    def _store(
+        self,
+        note_id: int,
+        analysis: Analysis,
+        candidates: list[Candidate] | None = None,
+        target: tuple[str, int] | None = None,
+    ) -> None:
         self.db.execute(
             "UPDATE notes SET summary = ?, no_change_reason = ?, alternatives = ?, error = '' WHERE id = ?",
             (
@@ -336,12 +371,17 @@ class Curator:
         for change in analysis.changes:
             old_storage, error = "", ""
             page_id = change.page_id
+            section_index = change.section_index
             if change.action == "update_section":
-                section = self.section(page_id, change.section_index)
+                section = self._resolve_section(page_id, section_index, change.content_storage, candidates or [], target)
                 if section is None:
-                    error = "La sección propuesta no existe en el índice; elige otra ubicación."
+                    error = (
+                        "La IA no indicó una sección válida de la página."
+                        if self.page(page_id)
+                        else "La página propuesta no existe en el índice; elige otra ubicación."
+                    )
                 else:
-                    old_storage = section.storage
+                    old_storage, section_index = section.storage, section.index
             elif change.action == "append_to_page" and self.page(page_id) is None:
                 error = "La página propuesta no existe en el índice; elige otra ubicación."
             elif change.action == "create_page" and page_id and self.page(page_id) is None:
@@ -359,7 +399,7 @@ class Curator:
                     note_id,
                     change.action,
                     page_id,
-                    change.section_index,
+                    section_index,
                     old_storage,
                     change.content_storage,
                     change.new_page_title,
