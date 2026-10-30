@@ -1,6 +1,6 @@
 # Confluence Curator
 
-> **Beta 0.0.4.** La conexión con Confluence Cloud y Jira Cloud reales ya se probó; el resto del flujo (propuestas y publicación) y la conexión con Slack se probaron con servicios simulados. Los lanzadores funcionan en Mac y Linux; el de Windows todavía no se probó. Haz las primeras publicaciones en páginas sin importancia.
+> **Beta 0.0.5.** La conexión con Confluence Cloud y Jira Cloud reales ya se probó; las propuestas, la publicación, Ollama y Slack se probaron con servicios simulados. Los lanzadores funcionan en Mac y Linux; el de Windows todavía no se probó. Haz las primeras publicaciones en páginas sin importancia.
 
 Herramienta para consolidar en Confluence la información del proyecto que hoy está dispersa en chats, tickets de Jira y manuales del producto.
 
