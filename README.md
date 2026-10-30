@@ -72,7 +72,7 @@ No hace falta saber programar ni usar la terminal.
 2. **Descarga la herramienta**: en la página [Releases](https://github.com/cesared19/confluence-curator/releases) elige la versión más reciente y descarga *Source code (zip)*. Descomprímelo en una carpeta fija, por ejemplo *Documentos*.
 3. **Ábrela con doble clic** en el lanzador de tu sistema, dentro de esa carpeta:
    - **Windows:** `iniciar-windows.bat`. Si aparece «Windows protegió su PC», pulsa *Más información* y *Ejecutar de todas formas*.
-   - **Mac:** `iniciar-mac.command`. La primera vez, haz clic derecho, elige *Abrir* y confirma (macOS lo pide con archivos descargados de internet).
+   - **Mac:** `iniciar-mac.command`. La primera vez macOS lo bloquea con el aviso «Apple no ha podido verificar…», porque viene de internet y no está firmado por un desarrollador registrado en Apple. Pulsa **Aceptar** (no lo mandes a la Papelera), abre **Ajustes del Sistema → Privacidad y seguridad**, baja hasta *Seguridad* y pulsa **Abrir igualmente** junto a `iniciar-mac.command`; confirma con tu contraseña. Solo hace falta una vez por cada carpeta descargada. Otra forma, desde la Terminal en la carpeta de la herramienta: `xattr -dr com.apple.quarantine .` y después `./iniciar-mac.command`.
    - **Linux:** `iniciar-linux.sh` (o `./iniciar-linux.sh` en una terminal).
 
    Se abre una ventana negra: la primera vez instala lo necesario (uno o dos minutos) y después abre el navegador.
@@ -80,7 +80,7 @@ No hace falta saber programar ni usar la terminal.
 
 Para usarla otro día, vuelve a abrir el lanzador. Mientras la usas, deja abierta la ventana negra; para cerrarla, cierra esa ventana. Si abres el lanzador cuando ya está en marcha, solo se abre el navegador. La configuración se puede cambiar cuando quieras en **Ajustes**.
 
-Para actualizar a una versión nueva, descárgala en otra carpeta y copia desde la anterior el archivo `.env` (la configuración) y la carpeta `data` (notas e historial).
+Para actualizar a una versión nueva, descárgala en otra carpeta y copia desde la anterior el archivo `.env` (la configuración) y la carpeta `data` (notas e historial). En Mac, `.env` no se ve en Finder porque empieza con punto: pulsa **Cmd + Mayús + .** para mostrar los archivos ocultos. En la Terminal, la carpeta que Finder muestra como «Documentos» es `~/Documents`, y el zip de GitHub se descomprime como `confluence-curator-VERSIÓN-beta`. La carpeta nueva vuelve a necesitar el permiso de macOS de arriba la primera vez.
 
 ![Asistente de configuración](docs/screenshots/asistente.png)
 
